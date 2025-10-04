@@ -26,13 +26,60 @@ exports.register = async (req, res) => {
     });
 
     // Tạo token JWT cho người dùng
-    const token = signToken({ id: newUser.user_id });
+    const token = signToken({ id: newUser.user_id, role: newUser.role });
 
     // Gửi email xác nhận
     const confirmationLink = `${process.env.CLIENT_URL}/verify-email?token=${token}`;
-    const emailSubject = 'Xác nhận đăng ký tài khoản';
-    const emailText = `Chào ${full_name},\n\nVui lòng nhấp vào đường dẫn sau để xác nhận đăng ký tài khoản: ${confirmationLink}`;
-    const emailHTML = `<p>Chào ${full_name},</p><p>Vui lòng nhấp vào đường dẫn sau để xác nhận đăng ký tài khoản:</p><a href="${confirmationLink}">${confirmationLink}</a>`;
+    const emailSubject = '🎉 Chào mừng đến với Bean Hotel - Xác nhận tài khoản';
+    const emailText = `Chào ${full_name},\n\nChào mừng bạn đến với Bean Hotel!\n\nVui lòng nhấp vào đường dẫn sau để xác nhận đăng ký tài khoản: ${confirmationLink}\n\nTrân trọng,\nĐội ngũ Bean Hotel`;
+    const emailHTML = `
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 10px;">
+      <div style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #2c3e50; margin: 0; font-size: 28px; font-weight: 300;">🏨 Bean Hotel</h1>
+          <p style="color: #7f8c8d; margin: 5px 0 0 0; font-size: 16px;">Trải nghiệm nghỉ dưỡng tuyệt vời</p>
+        </div>
+        
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h2 style="color: #2c3e50; margin: 0 0 15px 0; font-size: 24px;">🎉 Chào mừng ${full_name}!</h2>
+          <p style="color: #34495e; font-size: 16px; line-height: 1.6; margin: 0;">
+            Cảm ơn bạn đã đăng ký tài khoản tại Bean Hotel. Để hoàn tất quá trình đăng ký, 
+            vui lòng xác nhận email của bạn bằng cách nhấp vào nút bên dưới.
+          </p>
+        </div>
+        
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${confirmationLink}" 
+             style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                    color: white; 
+                    padding: 15px 30px; 
+                    text-decoration: none; 
+                    border-radius: 25px; 
+                    font-weight: bold; 
+                    font-size: 16px;
+                    display: inline-block;
+                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                    transition: all 0.3s ease;">
+            ✨ Xác nhận tài khoản
+          </a>
+        </div>
+        
+        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 30px 0;">
+          <p style="color: #6c757d; font-size: 14px; margin: 0; text-align: center;">
+            <strong>Lưu ý:</strong> Liên kết này sẽ hết hạn sau 24 giờ. Nếu bạn không yêu cầu tạo tài khoản này, 
+            vui lòng bỏ qua email này.
+          </p>
+        </div>
+        
+        <div style="border-top: 1px solid #ecf0f1; padding-top: 20px; margin-top: 30px;">
+          <p style="color: #7f8c8d; font-size: 14px; margin: 0; text-align: center;">
+            Trân trọng,<br>
+            <strong style="color: #2c3e50;">Đội ngũ Bean Hotel</strong><br>
+            📧 <a href="mailto:beanhotelvn@gmail.com" style="color: #667eea; text-decoration: none;">beanhotelvn@gmail.com</a>
+          </p>
+        </div>
+      </div>
+    </div>`;
 
     await sendEmail(email, emailSubject, emailText, emailHTML);
 
@@ -82,7 +129,7 @@ exports.login = async (req, res) => {
     }
 
     // Tạo token JWT cho người dùng
-    const token = signToken({ id: user.user_id });
+    const token = signToken({ id: user.user_id, role: user.role });
 
     res.status(200).json({ message: 'Đăng nhập thành công', token });
   } catch (error) {
@@ -101,12 +148,62 @@ exports.forgotPassword = async (req, res) => {
     }
 
     // Tạo token reset mật khẩu
-    const token = signToken({ id: user.user_id });
+    const token = signToken({ id: user.user_id, role: user.role });
 
     const resetLink = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
-    const emailSubject = 'Yêu cầu đặt lại mật khẩu';
-    const emailText = `Chào ${user.full_name},\n\nVui lòng nhấp vào đường dẫn sau để đặt lại mật khẩu của bạn: ${resetLink}`;
-    const emailHTML = `<p>Chào ${user.full_name},</p><p>Vui lòng nhấp vào đường dẫn sau để đặt lại mật khẩu của bạn:</p><a href="${resetLink}">${resetLink}</a>`;
+    const emailSubject = '🔐 Bean Hotel - Yêu cầu đặt lại mật khẩu';
+    const emailText = `Chào ${user.full_name},\n\nChúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản Bean Hotel của bạn.\n\nVui lòng nhấp vào đường dẫn sau để đặt lại mật khẩu: ${resetLink}\n\nTrân trọng,\nĐội ngũ Bean Hotel`;
+    const emailHTML = `
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 10px;">
+      <div style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="color: #2c3e50; margin: 0; font-size: 28px; font-weight: 300;">🏨 Bean Hotel</h1>
+          <p style="color: #7f8c8d; margin: 5px 0 0 0; font-size: 16px;">Trải nghiệm nghỉ dưỡng tuyệt vời</p>
+        </div>
+        
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h2 style="color: #2c3e50; margin: 0 0 15px 0; font-size: 24px;">🔐 Đặt lại mật khẩu</h2>
+          <p style="color: #34495e; font-size: 16px; line-height: 1.6; margin: 0;">
+            Chào <strong>${user.full_name}</strong>,<br><br>
+            Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản Bean Hotel của bạn. 
+            Để tạo mật khẩu mới, vui lòng nhấp vào nút bên dưới.
+          </p>
+        </div>
+        
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${resetLink}" 
+             style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%); 
+                    color: white; 
+                    padding: 15px 30px; 
+                    text-decoration: none; 
+                    border-radius: 25px; 
+                    font-weight: bold; 
+                    font-size: 16px;
+                    display: inline-block;
+                    box-shadow: 0 4px 15px rgba(231, 76, 60, 0.4);
+                    transition: all 0.3s ease;">
+            🔑 Đặt lại mật khẩu
+          </a>
+        </div>
+        
+        <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #ffc107;">
+          <p style="color: #856404; font-size: 14px; margin: 0; text-align: center;">
+            <strong>⚠️ Lưu ý bảo mật:</strong><br>
+            • Liên kết này chỉ có hiệu lực trong 1 giờ<br>
+            • Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng bỏ qua email này<br>
+            • Không chia sẻ liên kết này với bất kỳ ai
+          </p>
+        </div>
+        
+        <div style="border-top: 1px solid #ecf0f1; padding-top: 20px; margin-top: 30px;">
+          <p style="color: #7f8c8d; font-size: 14px; margin: 0; text-align: center;">
+            Trân trọng,<br>
+            <strong style="color: #2c3e50;">Đội ngũ Bean Hotel</strong><br>
+            📧 <a href="mailto:beanhotelvn@gmail.com" style="color: #667eea; text-decoration: none;">beanhotelvn@gmail.com</a>
+          </p>
+        </div>
+      </div>
+    </div>`;
 
     await sendEmail(email, emailSubject, emailText, emailHTML);
 
@@ -152,7 +249,7 @@ exports.resetPassword = async (req, res) => {
 exports.changePassword = async (req, res) => {
     try {
       const { oldPassword, newPassword } = req.body;
-      const { id } = req.user;  // Sử dụng req.user.id thay vì req.user.user_id
+      const { id } = req.user;  // Sử dụng req.user.id
   
       if (!id) {
         return res.status(400).json({ message: 'User ID không hợp lệ' });

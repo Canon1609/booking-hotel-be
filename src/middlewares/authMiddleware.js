@@ -17,4 +17,21 @@ const protect = (req, res, next) => {
   }
 };
 
-module.exports = { protect };
+// Middleware kiểm tra quyền admin
+const adminOnly = (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: 'Chưa xác thực' });
+    }
+
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Chỉ admin mới có quyền truy cập' });
+    }
+
+    next();
+  } catch (error) {
+    return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+  }
+};
+
+module.exports = { protect, adminOnly };

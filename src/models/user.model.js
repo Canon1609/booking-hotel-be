@@ -33,19 +33,30 @@ const User = sequelize.define('User', {
   },
   is_verified: {
     type: DataTypes.BOOLEAN,
-    defaultValue: false  // Trạng thái xác minh email
+    defaultValue: false  
+  },
+  date_of_birth: {
+    type: DataTypes.DATEONLY,
+    allowNull: true  
   },
   created_at: {
     type: DataTypes.DATE,
-    defaultValue: () => moment().tz('Asia/Ho_Chi_Minh').toDate()  // Trả về đối tượng Date thay vì chuỗi
+    defaultValue: () => moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss'),
+    allowNull: false
   },
   updated_at: {
     type: DataTypes.DATE,
-    defaultValue: () => moment().tz('Asia/Ho_Chi_Minh').toDate()  // Trả về đối tượng Date thay vì chuỗi
+    defaultValue: () => moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss'),
+    allowNull: false
   }
 }, {
   timestamps: false,
-  tableName: 'users'
+  tableName: 'users',
+  hooks: {
+    beforeUpdate: (user) => {
+      user.updated_at = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
+    }
+  }
 });
 
 module.exports = User;

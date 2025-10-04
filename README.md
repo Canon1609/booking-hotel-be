@@ -31,21 +31,12 @@ Res
     "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MywiaWF0IjoxNzU5MzA2NDIzLCJleHAiOjE3NTkzOTI4MjN9.uOdorvEWkLItysErlSbzRIt1BwoyVypMaJspU0GtyOs"
 }
 
-4. Change Pass(POST)
-http://localhost:5000/api/user/change-password
+
 Thêm Authorization (JWT):
 Chuyển đến tab "Authorization".
 Chọn "Bearer Token" từ dropdown "Type".
 Nhập JWT hợp lệ vào trường Token. (token lấy từ đăng nhập sau khi đăng nhập thành công)	
-Body
-{
-    "oldPassword": "123456",
-    "newPassword": "123456a"
-}
-RES
-{
-    "message": "Mật khẩu đã được thay đổi"
-}	
+
 
 5. Forgot pass(POST)
 http://localhost:5000/api/auth/forgot-password
@@ -62,6 +53,9 @@ http://localhost:5000/api/auth/reset-password
     "newPassword": "newpassword123",
     "confirmPassword": "newpassword123"
 }
+------------------------------------------------------------------------------------------------
+
+
 
 
 
