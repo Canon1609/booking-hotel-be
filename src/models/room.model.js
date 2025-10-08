@@ -28,10 +28,6 @@ const Room = sequelize.define('Room', {
     allowNull: false,
     references: { model: 'room_types', key: 'room_type_id' }
   },
-  images: {
-    type: DataTypes.JSON,
-    allowNull: true
-  },
   created_at: {
     type: DataTypes.DATE,
     allowNull: false,

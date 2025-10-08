@@ -30,8 +30,8 @@ const RoomType = sequelize.define('RoomType', {
     allowNull: false,
     defaultValue: 0
   },
-  image: {
-    type: DataTypes.STRING(255),
+  images: {
+    type: DataTypes.JSON,
     allowNull: true
   },
   created_at: {

@@ -200,8 +200,29 @@
 - URL: `http://localhost:5000/api/hotels/:id`
 - Headers:
   - `Authorization: Bearer ADMIN_TOKEN_HERE`
+### 4.6. Loại phòng (Room Types) — CÓ nhiều ảnh
 
-### 4.6. Phòng (Rooms)
+- Danh sách loại phòng (Public)
+  - GET `http://localhost:5000/api/room-types?search=`
+
+- Chi tiết loại phòng (Public)
+  - GET `http://localhost:5000/api/room-types/:id`
+
+- Tạo loại phòng (Admin Only)
+  - POST `http://localhost:5000/api/room-types`
+  - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
+  - Body: `multipart/form-data`
+    - Text fields: `room_type_name`, `description?`, `amenities?` (JSON string), `area?`, `quantity?`
+    - File fields: `images` (nhiều file)
+
+- Cập nhật loại phòng (Admin Only)
+  - PUT `http://localhost:5000/api/room-types/:id`
+  - Body: `multipart/form-data` (gửi `images` để thay TOÀN BỘ ảnh)
+
+- Xóa loại phòng (Admin Only)
+  - DELETE `http://localhost:5000/api/room-types/:id`
+
+### 4.7. Phòng (Rooms) 
 
 - Danh sách phòng (Public)
   - GET `http://localhost:5000/api/rooms?hotel_id=1&page=1&limit=10`
@@ -212,21 +233,120 @@
 - Tạo phòng (Admin Only)
   - POST `http://localhost:5000/api/rooms`
   - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
-  - Body: `form-data`
-    - `hotel_id` (text)
-    - `room_num` (text)
-    - `status` (text) one of: `available|booked|cleaning`
-    - `room_type_id` (text)
-    - `images` (file, chọn nhiều file)
+  - Body (JSON hoặc form-data text):
+    - `hotel_id`, `room_num`, `status` (`available|booked|cleaning`), `room_type_id`
 
 - Cập nhật phòng (Admin Only)
   - PUT `http://localhost:5000/api/rooms/:id`
   - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
-  - Body: `form-data` (gửi `images` để thay TOÀN BỘ ảnh)
+  - Body (JSON hoặc form-data text): các field cần cập nhật
 
 - Xóa phòng (Admin Only)
   - DELETE `http://localhost:5000/api/rooms/:id`
   - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
+
+
+
+### 4.8. Giá phòng (Room Prices)
+
+- Danh sách giá (Public)
+  - GET `http://localhost:5000/api/room-prices?room_type_id=1`
+
+- Tạo giá (Admin Only)
+  - POST `http://localhost:5000/api/room-prices`
+  - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
+  - Body (JSON):
+```json
+{
+  "room_type_id": 1,
+  "start_date": "2025-10-01",
+  "end_date": "2025-10-31",
+  "price_per_night": 1200000
+}
+```
+
+- Cập nhật giá (Admin Only)
+  - PUT `http://localhost:5000/api/room-prices/:id`
+
+- Xóa giá (Admin Only)
+  - DELETE `http://localhost:5000/api/room-prices/:id`
+
+---
+
+## 9. Trật tự tạo dữ liệu khi test (gợi ý)
+1) Tạo Loại phòng (Room Type) — BẮT BUỘC trước khi tạo Phòng
+2) Tạo Khách sạn (Hotel) kèm images (nếu cần)
+3) Tạo Phòng (Room): chọn `hotel_id` và `room_type_id` (KHÔNG gửi ảnh)
+4) Tạo Giá phòng (Room Price): theo `room_type_id`
+5) Sau đó mới test Booking/Payment/Review nếu cần
+
+---
+
+## 10. Payload mẫu (JSON) cho các API
+
+### 10.1. Tạo Phòng (Room) - dùng JSON
+- Method: `POST`
+- URL: `http://localhost:5000/api/rooms`
+- Headers:
+  - `Authorization: Bearer ADMIN_TOKEN_HERE`
+  - `Content-Type: application/json`
+- Body (JSON):
+```json
+{
+  "hotel_id": 1,
+  "room_num": 101,
+  "status": "available",
+  "room_type_id": 1
+}
+```
+
+### 10.2. Cập nhật Phòng (Room) - dùng JSON
+- Method: `PUT`
+- URL: `http://localhost:5000/api/rooms/1`
+- Headers:
+  - `Authorization: Bearer ADMIN_TOKEN_HERE`
+  - `Content-Type: application/json`
+- Body (JSON) (gửi các field cần đổi):
+```json
+{
+  "status": "cleaning",
+  "room_num": 102
+}
+```
+
+### 10.3. Tạo Giá phòng (Room Price) - dùng JSON
+- Method: `POST`
+- URL: `http://localhost:5000/api/room-prices`
+- Headers:
+  - `Authorization: Bearer ADMIN_TOKEN_HERE`
+  - `Content-Type: application/json`
+- Body (JSON):
+```json
+{
+  "room_type_id": 1,
+  "start_date": "2025-10-01",
+  "end_date": "2025-10-31",
+  "price_per_night": 1200000
+}
+```
+
+### 10.4. Tạo Loại phòng (Room Type) - multipart (vì có nhiều ảnh)
+- Method: `POST`
+- URL: `http://localhost:5000/api/room-types`
+- Headers:
+  - `Authorization: Bearer ADMIN_TOKEN_HERE`
+  - Body: `multipart/form-data`
+    - Text: `room_type_name`, `description?`, `amenities?` (JSON string), `area?`, `quantity?`
+    - Files: `images` (nhiều file)
+
+### 10.5. Tạo Khách sạn (Hotel) - multipart (có nhiều ảnh)
+- Method: `POST`
+- URL: `http://localhost:5000/api/hotels`
+- Headers:
+  - `Authorization: Bearer ADMIN_TOKEN_HERE`
+- Body: `multipart/form-data`
+  - Text: `name`, `address`, `description?`, `phone?`, `email?`
+  - Files: `images` (nhiều file)
 
 ---
 

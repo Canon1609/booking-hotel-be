@@ -25,7 +25,7 @@ async function addImagesColumnIfMissing(tableName) {
 
 async function ensureImagesColumns() {
   await addImagesColumnIfMissing('hotels');
-  await addImagesColumnIfMissing('rooms');
+  await addImagesColumnIfMissing('room_types');
 }
 
 module.exports = {
