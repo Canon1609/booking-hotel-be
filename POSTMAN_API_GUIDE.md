@@ -1,8 +1,8 @@
-# Hướng dẫn Test API User Management bằng Postman
+# Hướng dẫn Test API bằng Postman
 
 ## Cấu hình cơ bản
 
-**Base URL:** `http://localhost:5000/api/users` (hoặc port bạn đang sử dụng)
+**Base URL:** `http://localhost:5000/api`
 
 ## 1. Authentication APIs (Trước khi test các API khác)
 
@@ -158,7 +158,52 @@
 
 ---
 
-## 4. Cách tạo Admin User để test
+## 4. Hotel APIs
+
+### Env cần thiết (AWS)
+- `AWS_REGION`
+- `AWS_S3_BUCKET`
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+
+### 4.1. Danh sách khách sạn (Public)
+- Method: `GET`
+- URL: `http://localhost:5000/api/hotels`
+- Query (optional): `page`, `limit`, `search`
+
+### 4.2. Chi tiết khách sạn (Public)
+- Method: `GET`
+- URL: `http://localhost:5000/api/hotels/:id`
+
+### 4.3. Tạo khách sạn (Admin Only)
+- Method: `POST`
+- URL: `http://localhost:5000/api/hotels`
+- Headers:
+  - `Authorization: Bearer ADMIN_TOKEN_HERE`
+- Body: `form-data`
+  - Key `name` (text)
+  - Key `address` (text)
+  - Key `description` (text, optional)
+  - Key `phone` (text, optional)
+  - Key `email` (text, optional)
+  - Key `image` (file, optional)
+
+### 4.4. Cập nhật khách sạn (Admin Only)
+- Method: `PUT`
+- URL: `http://localhost:5000/api/hotels/:id`
+- Headers:
+  - `Authorization: Bearer ADMIN_TOKEN_HERE`
+- Body: `form-data` (các field như 4.3, có thể chỉ gửi fields cần cập nhật; gửi `image` để thay ảnh)
+
+### 4.5. Xóa khách sạn (Admin Only)
+- Method: `DELETE`
+- URL: `http://localhost:5000/api/hotels/:id`
+- Headers:
+  - `Authorization: Bearer ADMIN_TOKEN_HERE`
+
+---
+
+## 5. Cách tạo Admin User để test
 
 ### Bước 1: Tạo user thường
 Đăng ký một user bình thường qua API register
@@ -173,7 +218,7 @@ Sử dụng API login để lấy token admin
 
 ---
 
-## 5. Response Examples
+## 6. Response Examples
 
 ### Thành công (200/201):
 ```json
@@ -202,7 +247,7 @@ Sử dụng API login để lấy token admin
 
 ---
 
-## 6. Lưu ý quan trọng
+## 7. Lưu ý quan trọng
 
 1. **Token Authentication:** Tất cả API (trừ register/login) đều cần token trong header `Authorization: Bearer TOKEN`
 
@@ -222,7 +267,7 @@ Sử dụng API login để lấy token admin
 
 ---
 
-## 7. Test Cases gợi ý
+## 8. Test Cases gợi ý
 
 ### Test User APIs:
 1. Đăng ký → Đăng nhập → Lấy profile
@@ -236,3 +281,9 @@ Sử dụng API login để lấy token admin
 3. Tìm kiếm user theo email
 4. Cập nhật user → Xóa user
 5. Test phân quyền (user thường không thể truy cập admin APIs)
+
+### Test Hotel APIs:
+1. GET danh sách/chi tiết (public)
+2. POST tạo khách sạn kèm ảnh (admin)
+3. PUT cập nhật có thay ảnh (admin) → ảnh cũ bị xóa khỏi S3
+4. DELETE khách sạn (admin) → ảnh bị xóa khỏi S3
