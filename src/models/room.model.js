@@ -41,6 +41,9 @@ const Room = sequelize.define('Room', {
 }, {
   timestamps: false,
   tableName: 'rooms',
+  indexes: [
+    { unique: true, fields: ['hotel_id', 'room_num'], name: 'uniq_hotel_room_num' }
+  ],
   hooks: {
     beforeUpdate: (room) => {
       room.updated_at = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');

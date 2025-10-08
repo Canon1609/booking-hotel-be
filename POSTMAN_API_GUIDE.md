@@ -274,11 +274,9 @@
 ---
 
 ## 9. Trật tự tạo dữ liệu khi test (gợi ý)
-1) Tạo Loại phòng (Room Type) — BẮT BUỘC trước khi tạo Phòng
-2) Tạo Khách sạn (Hotel) kèm images (nếu cần)
-3) Tạo Phòng (Room): chọn `hotel_id` và `room_type_id` (KHÔNG gửi ảnh)
-4) Tạo Giá phòng (Room Price): theo `room_type_id`
-5) Sau đó mới test Booking/Payment/Review nếu cần
+Tạo Loại phòng (Room Type) — BẮT BUỘC trước khi tạo Phòng
+ Tạo Phòng (Room): chọn `hotel_id` và `room_type_id` (KHÔNG gửi ảnh)
+ Tạo Giá phòng (Room Price): theo `room_type_id` Sau đó mới test Booking/Payment/Review nếu cần
 
 ---
 

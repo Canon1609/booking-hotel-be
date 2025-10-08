@@ -28,8 +28,30 @@ async function ensureImagesColumns() {
   await addImagesColumnIfMissing('room_types');
 }
 
+async function ensureUniqueRoomNumberPerHotel() {
+  // Create unique index if not exists
+  try {
+    await sequelize.query('CREATE UNIQUE INDEX `uniq_hotel_room_num` ON `rooms` (`hotel_id`, `room_num`)');
+  } catch (e) {
+    // ignore if already exists
+  }
+}
+
 module.exports = {
-  ensureImagesColumns
+  ensureImagesColumns,
+  ensureUniqueRoomNumberPerHotel
 };
+
+// Add updated_at to room_prices if missing
+async function ensureRoomPricesUpdatedAt() {
+  const exists = await columnExists('room_prices', 'updated_at');
+  if (!exists) {
+    await sequelize.query('ALTER TABLE `room_prices` ADD COLUMN `updated_at` DATETIME NULL');
+    // initialize updated_at = created_at if exists, else NOW()
+    await sequelize.query('UPDATE `room_prices` SET `updated_at` = COALESCE(`created_at`, NOW())');
+  }
+}
+
+module.exports.ensureRoomPricesUpdatedAt = ensureRoomPricesUpdatedAt;
 
 

@@ -9,7 +9,7 @@ const roomTypeRoutes = require('./routes/roomTypeRoutes');
 const roomPriceRoutes = require('./routes/roomPriceRoutes');
 require('dotenv').config();  // Load các biến môi trường từ .env
 const { sequelize } = require('./models'); // Khởi tạo models và associations
-const { ensureImagesColumns } = require('./utils/db.util');
+const { ensureImagesColumns, ensureUniqueRoomNumberPerHotel, ensureRoomPricesUpdatedAt } = require('./utils/db.util');
 
 // Middleware
 app.use(express.json());  // Middleware để xử lý JSON request body
@@ -39,6 +39,16 @@ app.use('/api/room-prices', roomPriceRoutes);
       console.log('Running one-time images columns migration...');
       await ensureImagesColumns();
       console.log('Images columns migration complete. You can remove DB_RUN_IMAGES_MIGRATION flag.');
+    }
+    if (String(process.env.DB_RUN_ROOM_UNIQ_MIGRATION || '').toLowerCase() === 'true') {
+      console.log('Ensuring unique room number per hotel...');
+      await ensureUniqueRoomNumberPerHotel();
+      console.log('Unique index ensured. You can remove DB_RUN_ROOM_UNIQ_MIGRATION flag.');
+    }
+    if (String(process.env.DB_RUN_ROOMPRICE_UPDATED_AT || '').toLowerCase() === 'true') {
+      console.log('Ensuring room_prices.updated_at column...');
+      await ensureRoomPricesUpdatedAt();
+      console.log('room_prices.updated_at ensured. You can remove DB_RUN_ROOMPRICE_UPDATED_AT flag.');
     }
     console.log('Database synchronized!');
   } catch (err) {

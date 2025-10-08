@@ -30,10 +30,20 @@ const RoomPrice = sequelize.define('RoomPrice', {
     type: DataTypes.DATE,
     allowNull: false,
     defaultValue: () => moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss')
+  },
+  updated_at: {
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: () => moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss')
   }
 }, {
   timestamps: false,
-  tableName: 'room_prices'
+  tableName: 'room_prices',
+  hooks: {
+    beforeUpdate: (price) => {
+      price.updated_at = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
+    }
+  }
 });
 
 module.exports = RoomPrice;
