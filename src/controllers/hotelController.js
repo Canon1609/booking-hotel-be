@@ -5,22 +5,24 @@ const { uploadBufferToS3, deleteFromS3, generateKey, tryExtractKeyFromUrl } = re
 // Multer memory storage to capture file buffer
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
-// Middleware: single image field 'image'
-const uploadImage = upload.single('image');
+// Middleware: multiple images field 'images'
+const uploadImages = upload.array('images', 10);
 
 // Create Hotel (Admin)
 exports.createHotel = async (req, res) => {
   try {
     const { name, address, description, phone, email } = req.body;
-    let imageUrl;
+    let imageUrls = [];
 
-    if (req.file) {
-      const key = generateKey('hotels', req.file.originalname);
-      const uploaded = await uploadBufferToS3(req.file.buffer, key, req.file.mimetype);
-      imageUrl = uploaded.url;
+    if (req.files && req.files.length) {
+      for (const file of req.files) {
+        const key = generateKey('hotels', file.originalname);
+        const uploaded = await uploadBufferToS3(file.buffer, key, file.mimetype);
+        imageUrls.push(uploaded.url);
+      }
     }
 
-    const hotel = await Hotel.create({ name, address, description, image: imageUrl, phone, email });
+    const hotel = await Hotel.create({ name, address, description, images: imageUrls, phone, email });
     return res.status(201).json({ message: 'Tạo khách sạn thành công', hotel });
   } catch (error) {
     return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
@@ -36,16 +38,24 @@ exports.updateHotel = async (req, res) => {
     const hotel = await Hotel.findOne({ where: { hotel_id: id } });
     if (!hotel) return res.status(404).json({ message: 'Không tìm thấy khách sạn' });
 
-    // Replace image if provided
-    if (req.file) {
+    // Replace images if provided
+    if (req.files && req.files.length) {
       // delete old if existed
-      if (hotel.image) {
-        const key = tryExtractKeyFromUrl(hotel.image);
-        if (key) await deleteFromS3(key);
+      if (Array.isArray(hotel.images)) {
+        for (const url of hotel.images) {
+          const key = tryExtractKeyFromUrl(url);
+          if (key) {
+            try { await deleteFromS3(key); } catch (_) {}
+          }
+        }
       }
-      const key = generateKey('hotels', req.file.originalname);
-      const uploaded = await uploadBufferToS3(req.file.buffer, key, req.file.mimetype);
-      hotel.image = uploaded.url;
+      const newUrls = [];
+      for (const file of req.files) {
+        const key = generateKey('hotels', file.originalname);
+        const uploaded = await uploadBufferToS3(file.buffer, key, file.mimetype);
+        newUrls.push(uploaded.url);
+      }
+      hotel.images = newUrls;
     }
 
     if (name !== undefined) hotel.name = name;
@@ -125,6 +135,6 @@ exports.getHotelById = async (req, res) => {
   }
 };
 
-module.exports.uploadImage = uploadImage;
+module.exports.uploadImages = uploadImages;
 
 

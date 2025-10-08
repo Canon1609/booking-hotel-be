@@ -186,20 +186,47 @@
   - Key `description` (text, optional)
   - Key `phone` (text, optional)
   - Key `email` (text, optional)
-  - Key `image` (file, optional)
+  - Key `images` (file, chọn được nhiều file)
 
 ### 4.4. Cập nhật khách sạn (Admin Only)
 - Method: `PUT`
 - URL: `http://localhost:5000/api/hotels/:id`
 - Headers:
   - `Authorization: Bearer ADMIN_TOKEN_HERE`
-- Body: `form-data` (các field như 4.3, có thể chỉ gửi fields cần cập nhật; gửi `image` để thay ảnh)
+- Body: `form-data` (các field như 4.3; gửi `images` để thay TOÀN BỘ ảnh)
 
 ### 4.5. Xóa khách sạn (Admin Only)
 - Method: `DELETE`
 - URL: `http://localhost:5000/api/hotels/:id`
 - Headers:
   - `Authorization: Bearer ADMIN_TOKEN_HERE`
+
+### 4.6. Phòng (Rooms)
+
+- Danh sách phòng (Public)
+  - GET `http://localhost:5000/api/rooms?hotel_id=1&page=1&limit=10`
+
+- Chi tiết phòng (Public)
+  - GET `http://localhost:5000/api/rooms/1`
+
+- Tạo phòng (Admin Only)
+  - POST `http://localhost:5000/api/rooms`
+  - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
+  - Body: `form-data`
+    - `hotel_id` (text)
+    - `room_num` (text)
+    - `status` (text) one of: `available|booked|cleaning`
+    - `room_type_id` (text)
+    - `images` (file, chọn nhiều file)
+
+- Cập nhật phòng (Admin Only)
+  - PUT `http://localhost:5000/api/rooms/:id`
+  - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
+  - Body: `form-data` (gửi `images` để thay TOÀN BỘ ảnh)
+
+- Xóa phòng (Admin Only)
+  - DELETE `http://localhost:5000/api/rooms/:id`
+  - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
 
 ---
 

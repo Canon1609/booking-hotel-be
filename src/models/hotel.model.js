@@ -21,8 +21,8 @@ const Hotel = sequelize.define('Hotel', {
     type: DataTypes.TEXT,
     allowNull: true
   },
-  image: {
-    type: DataTypes.STRING(255),
+  images: {
+    type: DataTypes.JSON, // array of image URLs
     allowNull: true
   },
   phone: {
