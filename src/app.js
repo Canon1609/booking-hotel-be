@@ -10,9 +10,11 @@ const roomPriceRoutes = require('./routes/roomPriceRoutes');
 require('dotenv').config();  // Load các biến môi trường từ .env
 const { sequelize } = require('./models'); // Khởi tạo models và associations
 const { ensureImagesColumns, ensureUniqueRoomNumberPerHotel, ensureRoomPricesUpdatedAt } = require('./utils/db.util');
+const responseMiddleware = require('./middlewares/responseMiddleware');
 
 // Middleware
 app.use(express.json());  // Middleware để xử lý JSON request body
+app.use(responseMiddleware); // Ensure statusCode is present in all JSON responses
 
 // Cấu hình CORS
 app.use(cors({
@@ -28,6 +30,19 @@ app.use('/api/hotels', hotelRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/room-types', roomTypeRoutes);
 app.use('/api/room-prices', roomPriceRoutes);
+
+// 404 handler
+app.use((req, res, next) => {
+  res.status(404).json({ message: 'Endpoint không tồn tại' });
+});
+
+// Global error handler
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  const status = err.status || 500;
+  const message = err.message || 'Có lỗi xảy ra!';
+  res.status(status).json({ message, error: process.env.NODE_ENV === 'production' ? undefined : err.stack });
+});
 
 // Khởi tạo kết nối và đồng bộ database
 (async () => {

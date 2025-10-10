@@ -4,6 +4,8 @@
 
 **Base URL:** `http://localhost:5000/api`
 
+> Lưu ý chuẩn hóa response: Tất cả API trả về JSON sẽ luôn bao gồm trường `statusCode` phản ánh HTTP status thực tế. Vui lòng dựa vào `statusCode` để xử lý phía FE.
+
 ## 1. Authentication APIs (Trước khi test các API khác)
 
 ### Đăng ký tài khoản
@@ -379,14 +381,24 @@ Sử dụng API login để lấy token admin
     "is_verified": false,
     "created_at": "2025-01-04 21:23:31",
     "updated_at": "2025-01-04 21:23:31"
-  }
+  },
+  "statusCode": 200
 }
 ```
 
 ### Lỗi (400/401/403/404):
 ```json
 {
-  "message": "Email đã được sử dụng"
+  "message": "Email đã được sử dụng",
+  "statusCode": 400
+}
+```
+
+Ví dụ 404 (route không tồn tại):
+```json
+{
+  "message": "Endpoint không tồn tại",
+  "statusCode": 404
 }
 ```
 
@@ -432,3 +444,4 @@ Sử dụng API login để lấy token admin
 2. POST tạo khách sạn kèm ảnh (admin)
 3. PUT cập nhật có thay ảnh (admin) → ảnh cũ bị xóa khỏi S3
 4. DELETE khách sạn (admin) → ảnh bị xóa khỏi S3
+
