@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/user.model');
 const sendEmail = require('../utils/email.util');  // Gửi email
 const { signToken, verifyToken } = require('../utils/jwt.util');  // Tạo và xác thực JWT token
+const passport = require('../config/passport');
 
 // Đăng ký người dùng
 exports.register = async (req, res) => {
@@ -278,9 +279,32 @@ exports.changePassword = async (req, res) => {
       user.password_hashed = hashedPassword;
       await user.save();
   
-      res.status(200).json({ message: 'Mật khẩu đã được thay đổi' });
+  res.status(200).json({ message: 'Mật khẩu đã được thay đổi' });
+  } catch (error) {
+    res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+  }
+};
+
+// Google OAuth - Redirect to Google
+exports.googleAuth = passport.authenticate('google', {
+  scope: ['profile', 'email']
+});
+
+// Google OAuth - Callback
+exports.googleCallback = [
+  passport.authenticate('google', { 
+    failureRedirect: `${process.env.CLIENT_URL}/login?error=google_auth_failed` 
+  }),
+  async (req, res) => {
+    try {
+      const user = req.user;
+      const token = signToken({ id: user.user_id, role: user.role });
+      
+      // Redirect to frontend with token
+      res.redirect(`${process.env.CLIENT_URL}/login?token=${token}&success=google_auth_success`);
     } catch (error) {
-      res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+      res.redirect(`${process.env.CLIENT_URL}/login?error=server_error`);
     }
-  };
+  }
+];
   

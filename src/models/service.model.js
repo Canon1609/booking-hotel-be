@@ -22,8 +22,10 @@ const Service = sequelize.define('Service', {
     type: DataTypes.TEXT,
     allowNull: true
   },
-  image: {
-    type: DataTypes.STRING(255),
+  // Chuyển từ 1 ảnh sang nhiều ảnh (ưu tiên JSON, fallback TEXT ở migration util)
+  images: {
+    // Lưu ý: cột DB có thể là JSON hoặc TEXT; Sequelize vẫn map STRING nếu cần
+    type: DataTypes.JSON,
     allowNull: true
   },
   created_at: {

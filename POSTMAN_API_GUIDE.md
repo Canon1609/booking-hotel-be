@@ -35,6 +35,16 @@
 }
 ```
 
+### Đăng nhập bằng Google
+- **Method:** `GET`
+- **URL:** `http://localhost:5000/api/auth/google`
+- **Mô tả:** Redirect đến Google OAuth, sau đó redirect về frontend với token
+res
+http://localhost:3000/login?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6Miwicm9sZSI6ImN1c3RvbWVyIiwiaWF0IjoxNzYwMTEwMzAxLCJleHAiOjE3NjAxOTY3MDF9.znxTcYOeiN4-enl6kbVqZSav2rPNFBW8u3ypgpFooxk&success=google_auth_success
+
+test
+GET http://localhost:5000/api/users/profile
+Headers: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 **Lưu token từ response để sử dụng cho các API khác!**
 
 ---
@@ -273,6 +283,29 @@
 - Xóa giá (Admin Only)
   - DELETE `http://localhost:5000/api/room-prices/:id`
 
+### 4.9. Dịch vụ (Services) — NHIỀU ẢNH
+
+ - Danh sách dịch vụ (Public)
+   - GET `http://localhost:5000/api/services`
+   - Có thể lọc tùy chọn: `?hotel_id=1&page=1&limit=10&search=massage`
+
+- Chi tiết dịch vụ (Public)
+  - GET `http://localhost:5000/api/services/:id`
+
+- Tạo dịch vụ (Admin Only)
+  - POST `http://localhost:5000/api/services`
+  - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
+  - Body: `multipart/form-data`
+    - Text fields: `hotel_id` (bắt buộc), `name` (bắt buộc), `description?`
+    - File fields: `images` (nhiều file)
+
+- Cập nhật dịch vụ (Admin Only)
+  - PUT `http://localhost:5000/api/services/:id`
+  - Body: `multipart/form-data` (gửi `images` để thay TOÀN BỘ ảnh)
+
+- Xóa dịch vụ (Admin Only)
+  - DELETE `http://localhost:5000/api/services/:id`
+
 ---
 
 ## 9. Trật tự tạo dữ liệu khi test (gợi ý)
@@ -348,6 +381,15 @@ Tạo Loại phòng (Room Type) — BẮT BUỘC trước khi tạo Phòng
   - Text: `name`, `address`, `description?`, `phone?`, `email?`
   - Files: `images` (nhiều file)
 
+### 10.6. Tạo Dịch vụ (Service) - multipart (nhiều ảnh)
+- Method: `POST`
+- URL: `http://localhost:5000/api/services`
+- Headers:
+  - `Authorization: Bearer ADMIN_TOKEN_HERE`
+- Body: `multipart/form-data`
+  - Text: `hotel_id`, `name`, `description?`
+  - Files: `images` (nhiều file)
+
 ---
 
 ## 5. Cách tạo Admin User để test
@@ -406,7 +448,7 @@ Ví dụ 404 (route không tồn tại):
 
 ## 7. Lưu ý quan trọng
 
-1. **Token Authentication:** Tất cả API (trừ register/login) đều cần token trong header `Authorization: Bearer TOKEN`
+1. **Token Authentication:** Tất cả API (trừ register/login/google) đều cần token trong header `Authorization: Bearer TOKEN`
 
 2. **Admin Role:** Các API admin cần user có role = 'admin'
 
@@ -414,11 +456,16 @@ Ví dụ 404 (route không tồn tại):
 
 4. **Password:** Mật khẩu sẽ được hash tự động, không lưu plain text
 
-5. **Timezone:** Tất cả thời gian đều theo múi giờ Hà Nội (UTC+7)
+5. **Google OAuth:** 
+   - Cần cấu hình `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL` trong .env
+   - User đăng nhập Google sẽ tự động verified và không cần password
+   - Nếu email đã tồn tại, sẽ link Google ID với tài khoản hiện tại
 
-6. **Validation:** 
+6. **Timezone:** Tất cả thời gian đều theo múi giờ Hà Nội (UTC+7)
+
+7. **Validation:** 
    - Email phải unique
-   - Password tối thiểu 6 ký tự
+   - Password tối thiểu 6 ký tự (trừ Google users)
    - Phone có thể null
    - date_of_birth có thể null
 
@@ -431,6 +478,7 @@ Ví dụ 404 (route không tồn tại):
 2. Cập nhật profile → Kiểm tra thay đổi
 3. Đổi mật khẩu → Đăng nhập với mật khẩu mới
 4. Xóa tài khoản → Thử đăng nhập lại (sẽ lỗi)
+5. **Test Google OAuth:** Truy cập `/api/auth/google` → Đăng nhập Google → Kiểm tra token redirect
 
 ### Test Admin APIs:
 1. Tạo admin user → Đăng nhập admin

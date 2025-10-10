@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');  // Import cors
+const session = require('express-session');
+const passport = require('./config/passport');
 const app = express();
 const userRoutes = require('./routes/userRoutes');
 const authRoutes = require('./routes/authRoutes');
@@ -7,6 +9,7 @@ const hotelRoutes = require('./routes/hotelRoutes');
 const roomRoutes = require('./routes/roomRoutes');
 const roomTypeRoutes = require('./routes/roomTypeRoutes');
 const roomPriceRoutes = require('./routes/roomPriceRoutes');
+const serviceRoutes = require('./routes/serviceRoutes');
 require('dotenv').config();  // Load các biến môi trường từ .env
 const { sequelize } = require('./models'); // Khởi tạo models và associations
 const { ensureImagesColumns, ensureUniqueRoomNumberPerHotel, ensureRoomPricesUpdatedAt } = require('./utils/db.util');
@@ -15,6 +18,16 @@ const responseMiddleware = require('./middlewares/responseMiddleware');
 // Middleware
 app.use(express.json());  // Middleware để xử lý JSON request body
 app.use(responseMiddleware); // Ensure statusCode is present in all JSON responses
+
+// Session và Passport
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'your-secret-key',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: false } // Set true nếu dùng HTTPS
+}));
+app.use(passport.initialize());
+app.use(passport.session());
 
 // Cấu hình CORS
 app.use(cors({
@@ -30,6 +43,7 @@ app.use('/api/hotels', hotelRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/room-types', roomTypeRoutes);
 app.use('/api/room-prices', roomPriceRoutes);
+app.use('/api/services', serviceRoutes);
 
 // 404 handler
 app.use((req, res, next) => {

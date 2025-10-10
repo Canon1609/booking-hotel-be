@@ -26,6 +26,7 @@ async function addImagesColumnIfMissing(tableName) {
 async function ensureImagesColumns() {
   await addImagesColumnIfMissing('hotels');
   await addImagesColumnIfMissing('room_types');
+  await addImagesColumnIfMissing('services');
 }
 
 async function ensureUniqueRoomNumberPerHotel() {
