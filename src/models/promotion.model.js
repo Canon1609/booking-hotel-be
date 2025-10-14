@@ -28,7 +28,7 @@ const Promotion = sequelize.define('Promotion', {
   },
   end_date: {
     type: DataTypes.DATE,
-    allowNull: false
+    allowNull: true  // Cho phép null cho voucher vĩnh viễn
   },
   status: {
     type: DataTypes.ENUM('active', 'expired'),

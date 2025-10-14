@@ -10,10 +10,12 @@ const roomRoutes = require('./routes/roomRoutes');
 const roomTypeRoutes = require('./routes/roomTypeRoutes');
 const roomPriceRoutes = require('./routes/roomPriceRoutes');
 const serviceRoutes = require('./routes/serviceRoutes');
+const promotionRoutes = require('./routes/promotionRoutes');
 require('dotenv').config();  // Load các biến môi trường từ .env
 const { sequelize } = require('./models'); // Khởi tạo models và associations
 const { ensureImagesColumns, ensureUniqueRoomNumberPerHotel, ensureRoomPricesUpdatedAt } = require('./utils/db.util');
 const responseMiddleware = require('./middlewares/responseMiddleware');
+const { startPromotionCron } = require('./utils/cron.util');
 
 // Middleware
 app.use(express.json());  // Middleware để xử lý JSON request body
@@ -44,6 +46,7 @@ app.use('/api/rooms', roomRoutes);
 app.use('/api/room-types', roomTypeRoutes);
 app.use('/api/room-prices', roomPriceRoutes);
 app.use('/api/services', serviceRoutes);
+app.use('/api/promotions', promotionRoutes);
 
 // 404 handler
 app.use((req, res, next) => {
@@ -80,6 +83,9 @@ app.use((err, req, res, next) => {
       console.log('room_prices.updated_at ensured. You can remove DB_RUN_ROOMPRICE_UPDATED_AT flag.');
     }
     console.log('Database synchronized!');
+    
+    // Khởi tạo cron job cho promotions
+    startPromotionCron();
   } catch (err) {
     console.error('Database init error:', err);
   }

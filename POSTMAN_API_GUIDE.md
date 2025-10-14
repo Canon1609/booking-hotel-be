@@ -40,7 +40,7 @@
 - **URL:** `http://localhost:5000/api/auth/google`
 - **Mô tả:** Redirect đến Google OAuth, sau đó redirect về frontend với token
 res
-http://localhost:3000/login?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6Miwicm9sZSI6ImN1c3RvbWVyIiwiaWF0IjoxNzYwMTEwMzAxLCJleHAiOjE3NjAxOTY3MDF9.znxTcYOeiN4-enl6kbVqZSav2rPNFBW8u3ypgpFooxk&success=google_auth_success
+23
 
 test
 GET http://localhost:5000/api/users/profile
@@ -306,6 +306,40 @@ Headers: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 - Xóa dịch vụ (Admin Only)
   - DELETE `http://localhost:5000/api/services/:id`
 
+### 4.10. Khuyến mãi (Promotions) — VOUCHER & GIẢM GIÁ
+
+- Danh sách khuyến mãi (Public)
+  - GET `http://localhost:5000/api/promotions`
+  - Có thể lọc: `?status=active&search=SUMMER&page=1&limit=10`
+
+- Chi tiết khuyến mãi (Public)
+  - GET `http://localhost:5000/api/promotions/:id`
+
+- Kiểm tra mã khuyến mãi (Public)
+  - POST `http://localhost:5000/api/promotions/validate`
+  - Body (JSON): `{ "promotion_code": "SUMMER2024" }`
+
+- Áp dụng mã khuyến mãi (Public) - dùng khi checkout
+  - POST `http://localhost:5000/api/promotions/apply`
+  - Body (JSON): `{ "promotion_code": "SUMMER2024", "total_amount": 1000000 }`
+
+- Tạo khuyến mãi (Admin Only)
+  - POST `http://localhost:5000/api/promotions`
+  - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
+  - Body (JSON): xem ví dụ bên dưới
+
+- Cập nhật khuyến mãi (Admin Only)
+  - PUT `http://localhost:5000/api/promotions/:id`
+  - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
+
+- Xóa khuyến mãi (Admin Only)
+  - DELETE `http://localhost:5000/api/promotions/:id`
+  - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
+
+- Cập nhật promotions hết hạn (Admin Only)
+  - POST `http://localhost:5000/api/promotions/update-expired`
+  - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
+
 ---
 
 ## 9. Trật tự tạo dữ liệu khi test (gợi ý)
@@ -389,6 +423,59 @@ Tạo Loại phòng (Room Type) — BẮT BUỘC trước khi tạo Phòng
 - Body: `multipart/form-data`
   - Text: `hotel_id`, `name`, `description?`
   - Files: `images` (nhiều file)
+
+### 10.7. Tạo Khuyến mãi (Promotion) - JSON
+- Method: `POST`
+- URL: `http://localhost:5000/api/promotions`
+- Headers:
+  - `Authorization: Bearer ADMIN_TOKEN_HERE`
+  - `Content-Type: application/json`
+- Body (JSON) - Voucher có hạn:
+```json
+{
+  "promotion_code": "SUMMER2024",
+  "discount_type": "percentage",
+  "amount": 20,
+  "start_date": "2024-06-01 00:00:00",
+  "end_date": "2024-08-31 23:59:59",
+  "quantity": 100
+}
+```
+
+- Body (JSON) - Voucher vĩnh viễn:
+```json
+{
+  "promotion_code": "WELCOME10",
+  "discount_type": "fixed",
+  "amount": 100000,
+  "start_date": "2024-01-01 00:00:00",
+  "end_date": null,
+  "quantity": 0
+}
+```
+
+### 10.8. Kiểm tra mã khuyến mãi (Promotion Validate)
+- Method: `POST`
+- URL: `http://localhost:5000/api/promotions/validate`
+- Headers: `Content-Type: application/json`
+- Body (JSON):
+```json
+{
+  "promotion_code": "SUMMER2024"
+}
+```
+
+### 10.9. Áp dụng mã khuyến mãi (Promotion Apply) - dùng khi checkout
+- Method: `POST`
+- URL: `http://localhost:5000/api/promotions/apply`
+- Headers: `Content-Type: application/json`
+- Body (JSON):
+```json
+{
+  "promotion_code": "SUMMER2024",
+  "total_amount": 2000000
+}
+```
 
 ---
 
@@ -492,4 +579,12 @@ Ví dụ 404 (route không tồn tại):
 2. POST tạo khách sạn kèm ảnh (admin)
 3. PUT cập nhật có thay ảnh (admin) → ảnh cũ bị xóa khỏi S3
 4. DELETE khách sạn (admin) → ảnh bị xóa khỏi S3
+
+### Test Promotion APIs:
+1. **Tạo voucher có hạn:** POST với `end_date` → Kiểm tra status = 'active'
+2. **Tạo voucher vĩnh viễn:** POST với `end_date: null` → Kiểm tra status = 'active'
+3. **Kiểm tra mã hợp lệ:** POST validate với tổng tiền → Tính toán giảm giá
+4. **Test hết hạn:** Tạo voucher với `end_date` quá khứ → Chờ cron job hoặc gọi update-expired
+5. **Test phần trăm:** `discount_type: "percentage"`, `amount: 20` → Giảm 20%
+6. **Test số tiền cố định:** `discount_type: "fixed"`, `amount: 100000` → Giảm 100k
 
