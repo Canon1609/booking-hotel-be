@@ -340,6 +340,56 @@ Headers: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
   - POST `http://localhost:5000/api/promotions/update-expired`
   - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
 
+### 4.11. Danh mục (Categories) — QUẢN LÝ DANH MỤC
+
+- Danh sách danh mục (Public)
+  - GET `http://localhost:5000/api/categories`
+  - Có thể lọc: `?search=tin-tuc&page=1&limit=10`
+
+- Chi tiết danh mục (Public)
+  - GET `http://localhost:5000/api/categories/:id`
+  - GET `http://localhost:5000/api/categories/slug/:slug`
+
+- Tạo danh mục (Admin Only)
+  - POST `http://localhost:5000/api/categories`
+  - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
+  - Body (JSON): `{ "name": "Tin tức", "slug": "tin-tuc" }`
+
+- Cập nhật danh mục (Admin Only)
+  - PUT `http://localhost:5000/api/categories/:id`
+  - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
+
+- Xóa danh mục (Admin Only)
+  - DELETE `http://localhost:5000/api/categories/:id`
+  - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
+
+### 4.12. Bài viết (Posts) — BLOG & TIN TỨC
+
+- Danh sách bài viết (Public)
+  - GET `http://localhost:5000/api/posts`
+  - Có thể lọc: `?status=published&category_id=1&search=khach-san&tag=du-lich&page=1&limit=10`
+
+- Chi tiết bài viết (Public)
+  - GET `http://localhost:5000/api/posts/:id`
+  - GET `http://localhost:5000/api/posts/slug/:slug`
+
+- Tạo bài viết (Cần đăng nhập)
+  - POST `http://localhost:5000/api/posts`
+  - Headers: `Authorization: Bearer TOKEN_HERE`
+  - Body: `multipart/form-data` (xem ví dụ bên dưới)
+  - **Lưu ý:** `user_id` sẽ tự động lấy từ token, không cần gửi trong body
+
+- Cập nhật bài viết (Cần đăng nhập)
+  - PUT `http://localhost:5000/api/posts/:id`
+  - Headers: `Authorization: Bearer TOKEN_HERE`
+  - Body: `multipart/form-data`
+  - **Lưu ý:** Chỉ admin hoặc tác giả bài viết mới được sửa
+
+- Xóa bài viết (Cần đăng nhập)
+  - DELETE `http://localhost:5000/api/posts/:id`
+  - Headers: `Authorization: Bearer TOKEN_HERE`
+  - **Lưu ý:** Chỉ admin hoặc tác giả bài viết mới được xóa
+
 ---
 
 ## 9. Trật tự tạo dữ liệu khi test (gợi ý)
@@ -477,6 +527,70 @@ Tạo Loại phòng (Room Type) — BẮT BUỘC trước khi tạo Phòng
 }
 ```
 
+### 10.10. Tạo Danh mục (Category) - JSON
+- Method: `POST`
+- URL: `http://localhost:5000/api/categories`
+- Headers:
+  - `Authorization: Bearer ADMIN_TOKEN_HERE`
+  - `Content-Type: application/json`
+- Body (JSON):
+```json
+{
+  "name": "Tin tức",
+  "slug": "tin-tuc"
+}
+```
+
+### 10.11. Cập nhật Danh mục (Category) - JSON
+- Method: `PUT`
+- URL: `http://localhost:5000/api/categories/:id`
+- Headers:
+  - `Authorization: Bearer ADMIN_TOKEN_HERE`
+  - `Content-Type: application/json`
+- Body (JSON) - Đổi tên:
+```json
+{
+  "name": "Tin tức mới"
+}
+```
+- Body (JSON) - Đổi slug:
+```json
+{
+  "slug": "tin-tuc-moi"
+}
+```
+- Body (JSON) - Đổi cả tên và slug:
+```json
+{
+  "name": "Tin tức cập nhật",
+  "slug": "tin-tuc-cap-nhat"
+}
+```
+
+### 10.12. Tạo Bài viết (Post) - multipart (có ảnh)
+- Method: `POST`
+- URL: `http://localhost:5000/api/posts`
+- Headers:
+  - `Authorization: Bearer TOKEN_HERE`
+- Body: `multipart/form-data`
+
+**Form-data fields:**
+- `category_id`: `1` (số)
+- `title`: `Bài viết về khách sạn Vũng Tàu`
+- `slug`: `bai-viet-ve-khach-san-vung-tau`
+- `content`: `<p>Nội dung bài viết...</p>`
+- `status`: `draft` hoặc `published`
+- `tags`: `du-lich, khach-san, vung-tau` (comma-separated)
+- `cover_image`: [File] (1 ảnh đại diện)
+- `images`: [File] (nhiều ảnh bổ sung)
+
+**Ví dụ tags trong form-data:**
+- **Comma-separated:** `du-lich, khach-san, vung-tau`
+- **JSON string:** `["du-lich", "khach-san", "vung-tau"]`
+- **Không có tags:** Để trống hoặc không gửi field
+
+**Lưu ý:** `user_id` tự động lấy từ token, không cần gửi
+
 ---
 
 ## 5. Cách tạo Admin User để test
@@ -587,4 +701,55 @@ Ví dụ 404 (route không tồn tại):
 4. **Test hết hạn:** Tạo voucher với `end_date` quá khứ → Chờ cron job hoặc gọi update-expired
 5. **Test phần trăm:** `discount_type: "percentage"`, `amount: 20` → Giảm 20%
 6. **Test số tiền cố định:** `discount_type: "fixed"`, `amount: 100000` → Giảm 100k
+
+### Test Category APIs:
+1. **Tạo danh mục:** 
+   - POST `{"name": "Tin tức", "slug": "tin-tuc"}` → Kiểm tra unique slug
+   - POST `{"name": "Khuyến mãi", "slug": "khuyen-mai"}` → Tạo thêm danh mục
+
+2. **Lấy danh sách:** 
+   - GET `/api/categories` → Lấy tất cả
+   - GET `/api/categories?search=tin` → Tìm theo tên hoặc slug
+
+3. **Lấy chi tiết:**
+   - GET `/api/categories/1` → Lấy theo ID
+   - GET `/api/categories/slug/tin-tuc` → SEO-friendly URL
+
+4. **Cập nhật danh mục:**
+   - PUT `/api/categories/1` với `{"name": "Tin tức mới"}` → Đổi tên
+   - PUT `/api/categories/1` với `{"slug": "tin-tuc-moi"}` → Đổi slug
+   - PUT `/api/categories/1` với `{"name": "Tin tức cập nhật", "slug": "tin-tuc-cap-nhat"}` → Đổi cả tên và slug
+   - PUT `/api/categories/1` với `{"slug": "tin-tuc"}` → Test slug trùng lặp (sẽ lỗi)
+
+5. **Xóa danh mục:**
+   - DELETE `/api/categories/2` → Xóa danh mục thứ 2
+
+### Test Post APIs:
+1. **Tạo bài viết draft:** 
+   - POST với `status: "draft"` → Chưa có `published_at`
+   - Tags: `du-lich, khach-san, vung-tau`
+
+2. **Publish bài viết:** 
+   - PUT với `status: "published"` → Tự động set `published_at`
+
+3. **Upload ảnh:** 
+   - Cover image + nhiều ảnh bổ sung → Lưu vào S3
+
+4. **Test tags:**
+   - **Comma-separated:** `du-lich, khach-san, vung-tau`
+   - **JSON string:** `["du-lich", "khach-san", "vung-tau"]`
+   - **Không tags:** Để trống field tags
+
+5. **Lọc theo tag:** 
+   - GET với `?tag=du-lich` → Tìm bài viết có tag
+
+6. **Lọc theo danh mục:** 
+   - GET với `?category_id=1` → Bài viết trong danh mục
+
+7. **SEO-friendly:** 
+   - GET `/slug/bai-viet-ve-khach-san` → URL thân thiện
+
+8. **Test quyền sở hữu:**
+   - User A tạo bài → User B không thể sửa/xóa
+   - Admin có thể sửa/xóa tất cả bài viết
 

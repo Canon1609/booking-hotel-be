@@ -11,6 +11,8 @@ const roomTypeRoutes = require('./routes/roomTypeRoutes');
 const roomPriceRoutes = require('./routes/roomPriceRoutes');
 const serviceRoutes = require('./routes/serviceRoutes');
 const promotionRoutes = require('./routes/promotionRoutes');
+const categoryRoutes = require('./routes/categoryRoutes');
+const postRoutes = require('./routes/postRoutes');
 require('dotenv').config();  // Load các biến môi trường từ .env
 const { sequelize } = require('./models'); // Khởi tạo models và associations
 const { ensureImagesColumns, ensureUniqueRoomNumberPerHotel, ensureRoomPricesUpdatedAt } = require('./utils/db.util');
@@ -19,6 +21,7 @@ const { startPromotionCron } = require('./utils/cron.util');
 
 // Middleware
 app.use(express.json());  // Middleware để xử lý JSON request body
+app.use(express.urlencoded({ extended: true })); // Middleware để xử lý form-data
 app.use(responseMiddleware); // Ensure statusCode is present in all JSON responses
 
 // Session và Passport
@@ -47,6 +50,8 @@ app.use('/api/room-types', roomTypeRoutes);
 app.use('/api/room-prices', roomPriceRoutes);
 app.use('/api/services', serviceRoutes);
 app.use('/api/promotions', promotionRoutes);
+app.use('/api/categories', categoryRoutes);
+app.use('/api/posts', postRoutes);
 
 // 404 handler
 app.use((req, res, next) => {

@@ -11,6 +11,8 @@ const Booking = require('./booking.model');
 const Payment = require('./payment.model');
 const Service = require('./service.model');
 const Review = require('./review.model');
+const Category = require('./category.model');
+const Post = require('./post.model');
 
 // ========== Associations ==========
 
@@ -53,6 +55,14 @@ Review.belongsTo(User, { foreignKey: 'user_id', targetKey: 'user_id', as: 'user'
 Booking.hasOne(Review, { foreignKey: 'booking_id', sourceKey: 'booking_id', as: 'review' });
 Review.belongsTo(Booking, { foreignKey: 'booking_id', targetKey: 'booking_id', as: 'booking' });
 
+// User ↔ Post
+User.hasMany(Post, { foreignKey: 'user_id', sourceKey: 'user_id', as: 'posts' });
+Post.belongsTo(User, { foreignKey: 'user_id', targetKey: 'user_id', as: 'author' });
+
+// Category ↔ Post
+Category.hasMany(Post, { foreignKey: 'category_id', sourceKey: 'category_id', as: 'posts' });
+Post.belongsTo(Category, { foreignKey: 'category_id', targetKey: 'category_id', as: 'category' });
+
 module.exports = {
   sequelize,
   User,
@@ -64,7 +74,9 @@ module.exports = {
   Booking,
   Payment,
   Service,
-  Review
+  Review,
+  Category,
+  Post
 };
 
 
