@@ -12,7 +12,7 @@ const uploadImages = upload.fields([
 
 exports.createRoomType = async (req, res) => {
   try {
-    const { room_type_name, description, amenities, area, quantity } = req.body;
+  const { room_type_name, category, description, amenities, area, quantity } = req.body;
     let amenitiesParsed = null;
     if (amenities !== undefined) {
       if (typeof amenities === 'string' && amenities.trim().length) {
@@ -37,7 +37,7 @@ exports.createRoomType = async (req, res) => {
         images.push(uploaded.url);
       }
     }
-    const roomType = await RoomType.create({ room_type_name, description, amenities: amenitiesParsed, area, quantity, images });
+  const roomType = await RoomType.create({ room_type_name, category, description, amenities: amenitiesParsed, area, quantity, images });
     return res.status(201).json({ message: 'Tạo loại phòng thành công', roomType });
   } catch (error) {
     return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
@@ -46,8 +46,8 @@ exports.createRoomType = async (req, res) => {
 
 exports.updateRoomType = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { room_type_name, description, amenities, area, quantity } = req.body;
+  const { id } = req.params;
+  const { room_type_name, category, description, amenities, area, quantity } = req.body;
     let amenitiesParsed = undefined;
     if (amenities !== undefined) {
       if (typeof amenities === 'string' && amenities.trim().length) {
@@ -83,7 +83,8 @@ exports.updateRoomType = async (req, res) => {
       }
       roomType.images = urls;
     }
-    if (room_type_name !== undefined) roomType.room_type_name = room_type_name;
+  if (room_type_name !== undefined) roomType.room_type_name = room_type_name;
+  if (category !== undefined) roomType.category = category;
     if (description !== undefined) roomType.description = description;
     if (amenitiesParsed !== undefined) roomType.amenities = amenitiesParsed;
     if (area !== undefined) roomType.area = area;
@@ -116,10 +117,11 @@ exports.deleteRoomType = async (req, res) => {
 
 exports.getRoomTypes = async (req, res) => {
   try {
-    const { page = 1, limit = 10, search = '' } = req.query;
+  const { page = 1, limit = 10, search = '', category } = req.query;
     const offset = (page - 1) * limit;
-    const where = {};
+  const where = {};
     if (search) where.room_type_name = { [Op.like]: `%${search}%` };
+  if (category) where.category = category;
     const result = await RoomType.findAndCountAll({ where, limit: parseInt(limit), offset: parseInt(offset), order: [['created_at', 'DESC']] });
     return res.status(200).json({
       roomTypes: result.rows,

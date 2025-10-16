@@ -215,7 +215,10 @@ Headers: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ### 4.6. Loại phòng (Room Types) — CÓ nhiều ảnh
 
 - Danh sách loại phòng (Public)
-  - GET `http://localhost:5000/api/room-types?search=`
+  - GET `http://localhost:5000/api/room-types?search=&category=don-vip`
+  - Query (optional):
+    - `search`: tìm theo tên loại phòng
+    - `category`: lọc theo danh mục loại phòng (ví dụ: `don-vip`, `don-thuong`)
 
 - Chi tiết loại phòng (Public)
   - GET `http://localhost:5000/api/room-types/:id`
@@ -224,12 +227,13 @@ Headers: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
   - POST `http://localhost:5000/api/room-types`
   - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
   - Body: `multipart/form-data`
-    - Text fields: `room_type_name`, `description?`, `amenities?` (JSON string), `area?`, `quantity?`
+    - Text fields: `room_type_name`, `category?`, `description?`, `amenities?` (JSON string), `area?`, `quantity?`
     - File fields: `images` (nhiều file)
 
 - Cập nhật loại phòng (Admin Only)
   - PUT `http://localhost:5000/api/room-types/:id`
   - Body: `multipart/form-data` (gửi `images` để thay TOÀN BỘ ảnh)
+    - Text fields có thể cập nhật: `room_type_name?`, `category?`, `description?`, `amenities?` (JSON string), `area?`, `quantity?`
 
 - Xóa loại phòng (Admin Only)
   - DELETE `http://localhost:5000/api/room-types/:id`
@@ -453,7 +457,7 @@ Tạo Loại phòng (Room Type) — BẮT BUỘC trước khi tạo Phòng
 - Headers:
   - `Authorization: Bearer ADMIN_TOKEN_HERE`
   - Body: `multipart/form-data`
-    - Text: `room_type_name`, `description?`, `amenities?` (JSON string), `area?`, `quantity?`
+    - Text: `room_type_name`, `description?`, `amenities?` (JSON string), `area?`, `quantity?`, `categoy`
     - Files: `images` (nhiều file)
 
 ### 10.5. Tạo Khách sạn (Hotel) - multipart (có nhiều ảnh)
