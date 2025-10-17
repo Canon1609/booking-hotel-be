@@ -12,7 +12,7 @@ const uploadImages = upload.fields([
 
 exports.createRoomType = async (req, res) => {
   try {
-  const { room_type_name, category, description, amenities, area, quantity } = req.body;
+  const { room_type_name, category, description, amenities, area, quantity, capacity } = req.body;
     let amenitiesParsed = null;
     if (amenities !== undefined) {
       if (typeof amenities === 'string' && amenities.trim().length) {
@@ -37,7 +37,7 @@ exports.createRoomType = async (req, res) => {
         images.push(uploaded.url);
       }
     }
-  const roomType = await RoomType.create({ room_type_name, category, description, amenities: amenitiesParsed, area, quantity, images });
+  const roomType = await RoomType.create({ room_type_name, category, description, amenities: amenitiesParsed, area, quantity, capacity, images });
     return res.status(201).json({ message: 'Tạo loại phòng thành công', roomType });
   } catch (error) {
     return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
@@ -47,7 +47,7 @@ exports.createRoomType = async (req, res) => {
 exports.updateRoomType = async (req, res) => {
   try {
   const { id } = req.params;
-  const { room_type_name, category, description, amenities, area, quantity } = req.body;
+  const { room_type_name, category, description, amenities, area, quantity, capacity } = req.body;
     let amenitiesParsed = undefined;
     if (amenities !== undefined) {
       if (typeof amenities === 'string' && amenities.trim().length) {
@@ -89,6 +89,7 @@ exports.updateRoomType = async (req, res) => {
     if (amenitiesParsed !== undefined) roomType.amenities = amenitiesParsed;
     if (area !== undefined) roomType.area = area;
     if (quantity !== undefined) roomType.quantity = quantity;
+  if (capacity !== undefined) roomType.capacity = capacity;
     // no single image field anymore
     await roomType.save();
     return res.status(200).json({ message: 'Cập nhật loại phòng thành công', roomType });

@@ -34,6 +34,10 @@ const RoomType = sequelize.define('RoomType', {
     allowNull: false,
     defaultValue: 0
   },
+  capacity: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
   images: {
     type: DataTypes.JSON,
     allowNull: true
