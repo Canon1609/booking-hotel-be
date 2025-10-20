@@ -8,7 +8,22 @@ const uploadImages = upload.array('images', 10);
 
 exports.createService = async (req, res) => {
   try {
-    const { hotel_id, name, description } = req.body;
+    const { 
+      hotel_id, 
+      name, 
+      description, 
+      price, 
+      service_type = 'other',
+      is_available = true 
+    } = req.body;
+
+    // Validation
+    if (!hotel_id || !name || !price) {
+      return res.status(400).json({ 
+        message: 'Vui lòng nhập đầy đủ thông tin: hotel_id, name, price' 
+      });
+    }
+
     const imageUrls = [];
     if (req.files && req.files.length) {
       for (const file of req.files) {
@@ -17,8 +32,30 @@ exports.createService = async (req, res) => {
         imageUrls.push(uploaded.url);
       }
     }
-    const service = await Service.create({ hotel_id, name, description, images: imageUrls });
-    return res.status(201).json({ message: 'Tạo dịch vụ thành công', service });
+
+    const service = await Service.create({ 
+      hotel_id, 
+      name, 
+      description, 
+      price: parseFloat(price),
+      service_type,
+      is_available: is_available === 'true' || is_available === true,
+      images: imageUrls 
+    });
+
+    return res.status(201).json({ 
+      message: 'Tạo dịch vụ thành công', 
+      service: {
+        service_id: service.service_id,
+        hotel_id: service.hotel_id,
+        name: service.name,
+        description: service.description,
+        price: service.price,
+        service_type: service.service_type,
+        is_available: service.is_available,
+        images: service.images
+      }
+    });
   } catch (error) {
     return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
   }
@@ -27,7 +64,7 @@ exports.createService = async (req, res) => {
 exports.updateService = async (req, res) => {
   try {
     const { id } = req.params;
-    const { hotel_id, name, description } = req.body;
+    const { hotel_id, name, description, price, service_type, is_available } = req.body;
     const service = await Service.findOne({ where: { service_id: id } });
     if (!service) return res.status(404).json({ message: 'Không tìm thấy dịch vụ' });
 
@@ -50,9 +87,24 @@ exports.updateService = async (req, res) => {
     if (hotel_id !== undefined) service.hotel_id = hotel_id;
     if (name !== undefined) service.name = name;
     if (description !== undefined) service.description = description;
+    if (price !== undefined) service.price = parseFloat(price);
+    if (service_type !== undefined) service.service_type = service_type;
+    if (is_available !== undefined) service.is_available = is_available === 'true' || is_available === true;
 
     await service.save();
-    return res.status(200).json({ message: 'Cập nhật dịch vụ thành công', service });
+    return res.status(200).json({ 
+      message: 'Cập nhật dịch vụ thành công', 
+      service: {
+        service_id: service.service_id,
+        hotel_id: service.hotel_id,
+        name: service.name,
+        description: service.description,
+        price: service.price,
+        service_type: service.service_type,
+        is_available: service.is_available,
+        images: service.images
+      }
+    });
   } catch (error) {
     return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
   }

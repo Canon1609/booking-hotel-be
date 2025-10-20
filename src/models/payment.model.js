@@ -1,5 +1,5 @@
 const { Sequelize, DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const { sequelize } = require('../config/database');
 const moment = require('moment-timezone');
 
 const Payment = sequelize.define('Payment', {
@@ -19,11 +19,11 @@ const Payment = sequelize.define('Payment', {
     allowNull: false
   },
   method: {
-    type: DataTypes.ENUM('cash', 'banking'),
+    type: DataTypes.ENUM('cash', 'banking', 'payos'),
     allowNull: false
   },
   status: {
-    type: DataTypes.ENUM('pending', 'success', 'failed'),
+    type: DataTypes.ENUM('pending', 'success', 'failed', 'completed'),
     allowNull: false,
     defaultValue: 'pending'
   },

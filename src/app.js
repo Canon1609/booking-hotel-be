@@ -13,11 +13,15 @@ const serviceRoutes = require('./routes/serviceRoutes');
 const promotionRoutes = require('./routes/promotionRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
 const postRoutes = require('./routes/postRoutes');
+const bookingRoutes = require('./routes/bookingRoutes');
 require('dotenv').config();  // Load các biến môi trường từ .env
 const { sequelize } = require('./models'); // Khởi tạo models và associations
 const { ensureImagesColumns, ensureUniqueRoomNumberPerHotel, ensureRoomPricesUpdatedAt } = require('./utils/db.util');
 const responseMiddleware = require('./middlewares/responseMiddleware');
 const { startPromotionCron } = require('./utils/cron.util');
+const { startEmailReminderCron } = require('./utils/emailCron.util');
+const redisService = require('./utils/redis.util');
+const payOSService = require('./utils/payos.util');
 
 // Middleware
 app.use(express.json());  // Middleware để xử lý JSON request body
@@ -52,6 +56,7 @@ app.use('/api/services', serviceRoutes);
 app.use('/api/promotions', promotionRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/posts', postRoutes);
+app.use('/api/bookings', bookingRoutes);
 
 // 404 handler
 app.use((req, res, next) => {
@@ -66,33 +71,30 @@ app.use((err, req, res, next) => {
   res.status(status).json({ message, error: process.env.NODE_ENV === 'production' ? undefined : err.stack });
 });
 
-// Khởi tạo kết nối và đồng bộ database
+// Khởi tạo các service khác (không bao gồm database)
 (async () => {
   try {
-    await sequelize.authenticate();
-    console.log('Database connected');
-    await sequelize.sync();
-    if (String(process.env.DB_RUN_IMAGES_MIGRATION || '').toLowerCase() === 'true') {
-      console.log('Running one-time images columns migration...');
-      await ensureImagesColumns();
-      console.log('Images columns migration complete. You can remove DB_RUN_IMAGES_MIGRATION flag.');
+    // Khởi tạo Redis (tạm thời tắt để test)
+    try {
+      await redisService.connect();
+    } catch (error) {
+      console.warn('Redis not available, continuing without Redis...');
     }
-    if (String(process.env.DB_RUN_ROOM_UNIQ_MIGRATION || '').toLowerCase() === 'true') {
-      console.log('Ensuring unique room number per hotel...');
-      await ensureUniqueRoomNumberPerHotel();
-      console.log('Unique index ensured. You can remove DB_RUN_ROOM_UNIQ_MIGRATION flag.');
+    
+    // Khởi tạo PayOS
+    try {
+      await payOSService.initialize();
+    } catch (error) {
+      console.warn('PayOS not configured, continuing without PayOS...');
     }
-    if (String(process.env.DB_RUN_ROOMPRICE_UPDATED_AT || '').toLowerCase() === 'true') {
-      console.log('Ensuring room_prices.updated_at column...');
-      await ensureRoomPricesUpdatedAt();
-      console.log('room_prices.updated_at ensured. You can remove DB_RUN_ROOMPRICE_UPDATED_AT flag.');
-    }
-    console.log('Database synchronized!');
     
     // Khởi tạo cron job cho promotions
     startPromotionCron();
+    
+    // Khởi tạo cron job cho email nhắc nhở
+    startEmailReminderCron();
   } catch (err) {
-    console.error('Database init error:', err);
+    console.error('Service init error:', err);
   }
 })();
 

@@ -1,4 +1,4 @@
-const sequelize = require('../config/database');
+const { sequelize } = require('../config/database');
 
 async function columnExists(tableName, columnName) {
   const dbName = process.env.DB_NAME;
@@ -29,6 +29,26 @@ async function ensureImagesColumns() {
   await addImagesColumnIfMissing('services');
 }
 
+async function ensureServiceFields() {
+  // Thêm trường price nếu chưa có
+  const hasPrice = await columnExists('services', 'price');
+  if (!hasPrice) {
+    await sequelize.query('ALTER TABLE `services` ADD COLUMN `price` DECIMAL(10,2) NOT NULL DEFAULT 0');
+  }
+
+  // Thêm trường service_type nếu chưa có
+  const hasServiceType = await columnExists('services', 'service_type');
+  if (!hasServiceType) {
+    await sequelize.query('ALTER TABLE `services` ADD COLUMN `service_type` ENUM(\'prepaid\', \'postpaid\') NOT NULL DEFAULT \'prepaid\'');
+  }
+
+  // Thêm trường is_available nếu chưa có
+  const hasIsAvailable = await columnExists('services', 'is_available');
+  if (!hasIsAvailable) {
+    await sequelize.query('ALTER TABLE `services` ADD COLUMN `is_available` BOOLEAN NOT NULL DEFAULT TRUE');
+  }
+}
+
 async function ensureUniqueRoomNumberPerHotel() {
   // Create unique index if not exists
   try {
@@ -38,9 +58,34 @@ async function ensureUniqueRoomNumberPerHotel() {
   }
 }
 
+// Đảm bảo Payment model có đủ ENUM values
+async function ensurePaymentEnums() {
+  try {
+    console.log('Checking Payment ENUM values...');
+    
+    // Kiểm tra và cập nhật method ENUM
+    await sequelize.query(`
+      ALTER TABLE payments 
+      MODIFY COLUMN method ENUM('cash', 'banking', 'payos') NOT NULL
+    `);
+    
+    // Kiểm tra và cập nhật status ENUM
+    await sequelize.query(`
+      ALTER TABLE payments 
+      MODIFY COLUMN status ENUM('pending', 'success', 'failed', 'completed') NOT NULL DEFAULT 'pending'
+    `);
+    
+    console.log('Payment ENUM values updated successfully');
+  } catch (error) {
+    console.error('Error updating Payment ENUM values:', error);
+  }
+}
+
 module.exports = {
   ensureImagesColumns,
-  ensureUniqueRoomNumberPerHotel
+  ensureServiceFields,
+  ensureUniqueRoomNumberPerHotel,
+  ensurePaymentEnums
 };
 
 // Add updated_at to room_prices if missing

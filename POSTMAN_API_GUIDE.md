@@ -300,12 +300,13 @@ Headers: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
   - POST `http://localhost:5000/api/services`
   - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
   - Body: `multipart/form-data`
-    - Text fields: `hotel_id` (bắt buộc), `name` (bắt buộc), `description?`
+    - Text fields: `hotel_id` (bắt buộc), `name` (bắt buộc), `description?`, `price` (bắt buộc), `service_type?` (prepaid/postpaid), `is_available?` (true/false)
     - File fields: `images` (nhiều file)
 
 - Cập nhật dịch vụ (Admin Only)
   - PUT `http://localhost:5000/api/services/:id`
   - Body: `multipart/form-data` (gửi `images` để thay TOÀN BỘ ảnh)
+    - Text fields có thể cập nhật: `name?`, `description?`, `price?`, `service_type?`, `is_available?`
 
 - Xóa dịch vụ (Admin Only)
   - DELETE `http://localhost:5000/api/services/:id`
@@ -475,7 +476,7 @@ Tạo Loại phòng (Room Type) — BẮT BUỘC trước khi tạo Phòng
 - Headers:
   - `Authorization: Bearer ADMIN_TOKEN_HERE`
 - Body: `multipart/form-data`
-  - Text: `hotel_id`, `name`, `description?`
+  - Text: `hotel_id`, `name`, `description?`, `price` (bắt buộc), `service_type?` (prepaid/postpaid), `is_available?` (true/false)
   - Files: `images` (nhiều file)
 
 ### 10.7. Tạo Khuyến mãi (Promotion) - JSON
@@ -756,4 +757,1217 @@ Ví dụ 404 (route không tồn tại):
 8. **Test quyền sở hữu:**
    - User A tạo bài → User B không thể sửa/xóa
    - Admin có thể sửa/xóa tất cả bài viết
+
+---
+
+## 9. BOOKING APIs
+
+### Tổng quan
+Hệ thống đặt phòng hỗ trợ 2 luồng chính:
+- **Luồng 1: Đặt phòng trực tuyến** - Thanh toán trước qua PayOS
+- **Luồng 2: Đặt phòng trực tiếp** - Thanh toán khi check-out
+
+### 9.0. CHUẨN BỊ DỮ LIỆU MẪU (BẮT BUỘC)
+
+Trước khi test đặt phòng, cần tạo dữ liệu mẫu theo thứ tự:
+
+#### 9.0.1. Tạo Hotel
+- **POST** `http://localhost:5000/api/hotels`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Body:**
+  ```json
+  {
+    "name": "Khách sạn ABC",
+    "address": "123 Đường ABC, Quận 1, TP.HCM",
+    "phone": "1900-xxxx",
+    "email": "info@hotelabc.com",
+    "description": "Khách sạn 5 sao tại trung tâm TP.HCM",
+    "images": ["hotel1.jpg", "hotel2.jpg"]
+  }
+  ```
+
+#### 9.0.2. Tạo Room Type
+- **POST** `http://localhost:5000/api/room-types`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Body:**
+  ```json
+  {
+    "room_type_name": "Deluxe",
+    "category": "VIP",
+    "capacity": 2,
+    "description": "Phòng deluxe view biển",
+    "amenities": ["Wifi", "TV", "Minibar"],
+    "area": 35,
+    "quantity": 10,
+    "images": ["room1.jpg", "room2.jpg"]
+  }
+  ```
+
+#### 9.0.3. Tạo Room
+- **POST** `http://localhost:5000/api/rooms`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Body:**
+  ```json
+  {
+    "hotel_id": 1,
+    "room_type_id": 1,
+    "room_num": 101,
+    "status": "available"
+  }
+  ```
+
+#### 9.0.4. Tạo Room Price
+- **POST** `http://localhost:5000/api/room-prices`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Body:**
+  ```json
+  {
+    "room_type_id": 1,
+    "start_date": "2025-01-01",
+    "end_date": "2025-12-31",
+    "price_per_night": 1200000
+  }
+  ```
+
+#### 9.0.5. Tạo Services (Dịch vụ khách sạn)
+
+**Lưu ý:** Đây là tạo dịch vụ của khách sạn, khác với booking_services (dịch vụ trong booking cụ thể)
+
+- **POST** `http://localhost:5000/api/services`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Content-Type:** `multipart/form-data` (nếu có ảnh)
+- **Body (form-data):**
+  ```
+  hotel_id: 1
+  name: Đưa đón sân bay
+  description: Dịch vụ đưa đón sân bay Tân Sơn Nhất
+  price: 200000
+  service_type: prepaid
+  is_available: true
+  images: [file upload] (optional)
+  ```
+
+**Hoặc JSON (không có ảnh):**
+```json
+{
+  "hotel_id": 1,
+  "name": "Đưa đón sân bay",
+  "description": "Dịch vụ đưa đón sân bay Tân Sơn Nhất",
+  "price": 200000,
+  "service_type": "prepaid",
+  "is_available": true
+}
+```
+
+**Tạo thêm dịch vụ khác:**
+```json
+{
+  "hotel_id": 1,
+  "name": "Spa massage",
+  "description": "Dịch vụ spa và massage thư giãn",
+  "price": 500000,
+  "service_type": "spa",
+  "is_available": true
+}
+```
+
+**Các loại service_type:**
+- `prepaid`: Dịch vụ thanh toán trước (khi đặt phòng)
+- `postpaid`: Dịch vụ thanh toán sau (khi check-out)
+
+**Test tạo services:**
+```bash
+# Chạy script tạo services mẫu
+node test-create-services.js
+```
+
+**Response mẫu:**
+```json
+{
+  "message": "Tạo dịch vụ thành công",
+  "service": {
+    "service_id": 1,
+    "hotel_id": 1,
+    "name": "Đưa đón sân bay",
+    "description": "Dịch vụ đưa đón sân bay Tân Sơn Nhất",
+    "price": 200000,
+    "service_type": "prepaid",
+    "is_available": true,
+    "images": []
+  }
+}
+```
+
+#### 9.0.6. Tạo User (Customer)
+- **POST** `http://localhost:5000/api/auth/register`
+- **Body:**
+  ```json
+  {
+    "full_name": "Nguyễn Văn A",
+    "email": "customer@example.com",
+    "password": "password123",
+    "phone": "0123456789",
+    "role": "customer"
+  }
+  ```
+
+#### 9.0.7. Tạo Admin User
+- **POST** `http://localhost:5000/api/auth/register`
+- **Body:**
+  ```json
+  {
+    "full_name": "Admin User",
+    "email": "admin@example.com",
+    "password": "admin123",
+    "phone": "0987654321",
+    "role": "admin"
+  }
+  ```
+
+**Lưu ý:** Sau khi tạo xong, lưu lại các ID để test:
+- `hotel_id`: 1
+- `room_type_id`: 1  
+- `room_id`: 1
+- `service_id`: 1 (dịch vụ của khách sạn)
+- `user_id`: 2 (customer)
+- `admin_id`: 1 (admin)
+
+### 9.0.8. Giải thích về Booking Services
+
+**Khác biệt quan trọng:**
+- **`services`**: Dịch vụ của khách sạn (ví dụ: "Đưa đón sân bay", "Spa", "Ăn sáng")
+- **`booking_services`**: Dịch vụ cụ thể trong từng booking (ví dụ: "Đưa đón sân bay cho booking #1")
+
+**Khi nào tạo `booking_services`:**
+- Khi khách đặt phòng và chọn thêm dịch vụ
+- Khi admin tạo booking walk-in và thêm dịch vụ
+- Tự động tạo khi booking được xác nhận
+
+**Cấu trúc `booking_services`:**
+```json
+{
+  "booking_service_id": 1,
+  "booking_id": 1,
+  "service_id": 1,
+  "quantity": 2,
+  "unit_price": 200000,
+  "total_price": 400000,
+  "payment_type": "prepaid",
+  "status": "active"
+}
+```
+
+#### 9.0.9. Tạo Booking Service thủ công (nếu cần)
+
+**Lưu ý:** Thông thường `booking_services` được tạo tự động khi:
+- Tạo booking walk-in với services
+- Xác nhận temp booking với services
+- Thêm service vào temp booking
+
+**Nếu cần tạo thủ công:**
+```sql
+INSERT INTO booking_services (
+  booking_id, 
+  service_id, 
+  quantity, 
+  unit_price, 
+  total_price, 
+  payment_type, 
+  status
+) VALUES (
+  1,  -- booking_id
+  1,  -- service_id (từ bảng services)
+  2,  -- quantity
+  200000,  -- unit_price
+  400000,  -- total_price = quantity * unit_price
+  'prepaid',  -- payment_type
+  'active'    -- status
+);
+```
+
+### 9.1. LUỒNG 1: ĐẶT PHÒNG TRỰC TUYẾN (ONLINE)
+
+#### 9.1.1. Giữ chỗ tạm thời (Redis)
+- **POST** `http://localhost:5000/api/bookings/temp-booking`
+- **Headers:** `Authorization: Bearer USER_TOKEN`
+- **Body:**
+  ```json
+  {
+    "room_id": 1,
+    "check_in_date": "2024-01-15",
+    "check_out_date": "2024-01-17",
+    "num_person": 2
+  }
+  ```
+- **Response:**
+  ```json
+  {
+    "message": "Giữ chỗ tạm thời thành công",
+    "temp_booking_key": "temp_booking:2:1:2024-01-15:2024-01-17:20240115143022",
+    "expires_in": 1800,
+    "booking_data": {
+      "user_id": 2,
+      "room_id": 1,
+      "check_in_date": "2024-01-15",
+      "check_out_date": "2024-01-17",
+      "num_person": 2,
+      "room_price": 500000,
+      "total_price": 1000000,
+      "nights": 2
+    },
+    "statusCode": 200
+  }
+  ```
+
+#### 9.1.2. Thêm dịch vụ vào booking tạm thời
+- **POST** `http://localhost:5000/api/bookings/temp-booking/add-service`
+- **Headers:** `Authorization: Bearer USER_TOKEN`
+- **Body:**
+  ```json
+  {
+    "temp_booking_key": "temp_booking:2:1:2024-01-15:2024-01-17:20240115143022",
+    "service_id": 1,
+    "quantity": 2,
+    "payment_type": "prepaid"
+  }
+  ```
+- **Response:**
+  ```json
+  {
+    "message": "Thêm dịch vụ thành công",
+    "service": {
+      "service_id": 1,
+      "service_name": "Đưa đón sân bay",
+      "quantity": 2,
+      "unit_price": 200000,
+      "total_price": 400000,
+      "payment_type": "prepaid"
+    },
+    "updated_booking": {
+      "total_price": 1400000,
+      "prepaid_services_total": 400000
+    },
+    "statusCode": 200
+  }
+  ```
+
+#### 9.1.3. Tạo link thanh toán PayOS
+- **POST** `http://localhost:5000/api/bookings/create-payment-link`
+- **Headers:** `Authorization: Bearer USER_TOKEN`
+- **Body:**
+  ```json
+  {
+    "temp_booking_key": "temp_booking:2:1:2024-01-15:2024-01-17:20240115143022",
+    "promotion_code": "SUMMER2024"
+  }
+  ```
+- **Response:**
+  ```json
+  {
+    "message": "Tạo link thanh toán thành công",
+    "payment_url": "https://pay.payos.vn/web/...",
+    "qr_code": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+    "order_code": 1705312222001,
+    "booking_code": "BK1JQ2K3L4M5",
+    "amount": 1260000,
+    "expires_in": 1800,
+    "statusCode": 200
+  }
+  ```
+
+#### 9.1.4. Webhook xử lý kết quả thanh toán
+- **POST** `http://localhost:5000/api/bookings/payment-webhook`
+- **Headers:** `Content-Type: application/json`
+- **Body:** (Tự động từ PayOS)
+  ```json
+  {
+    "orderCode": 1705312222001,
+    "status": "PAID",
+    "buyerName": "Nguyễn Văn A",
+    "buyerEmail": "nguyenvana@email.com"
+  }
+  ```
+
+### 9.2. LUỒNG 2: ĐẶT PHÒNG TRỰC TIẾP (WALK-IN)
+
+#### 9.2.1. Tạo booking trực tiếp
+- **POST** `http://localhost:5000/api/bookings/walk-in`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Body:**
+  ```json
+  {
+    "user_id": 2,
+    "room_id": 1,
+    "check_in_date": "2024-01-15",
+    "check_out_date": "2024-01-17",
+    "num_person": 2,
+    "note": "Khách VIP",
+    "services": [
+      {
+        "service_id": 1,
+        "quantity": 1,
+        "payment_type": "postpaid"
+      }
+    ]
+  }
+  ```
+- **Response:**
+  ```json
+  {
+    "message": "Tạo booking thành công",
+    "booking": {
+      "booking_id": 1,
+      "booking_code": "BK1JQ2K3L4M5",
+      "room_type": "Deluxe",
+      "check_in_date": "2024-01-15",
+      "check_out_date": "2024-01-17",
+      "total_price": 1000000,
+      "booking_status": "confirmed",
+      "payment_status": "pending"
+    },
+    "statusCode": 201
+  }
+  ```
+
+### 9.3. CÁC API CHUNG
+
+#### 9.3.1. Lấy danh sách booking
+- **GET** `http://localhost:5000/api/bookings`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Query params:**
+  - `page=1&limit=10` - Phân trang
+  - `status=confirmed` - Lọc theo trạng thái
+  - `type=online` - Lọc theo loại (online/walkin)
+  - `user_id=2` - Lọc theo user
+- **Response:**
+  ```json
+  {
+    "bookings": [
+      {
+        "booking_id": 1,
+        "booking_code": "BK1JQ2K3L4M5",
+        "check_in_date": "2024-01-15",
+        "check_out_date": "2024-01-17",
+        "booking_status": "confirmed",
+        "payment_status": "paid",
+        "booking_type": "online",
+        "user": {
+          "user_id": 2,
+          "full_name": "Nguyễn Văn A",
+          "email": "nguyenvana@email.com"
+        },
+        "room": {
+          "room_id": 1,
+          "room_number": "101",
+          "room_type": {
+            "room_type_name": "Deluxe"
+          }
+        }
+      }
+    ],
+    "pagination": {
+      "currentPage": 1,
+      "totalPages": 1,
+      "totalItems": 1
+    },
+    "statusCode": 200
+  }
+  ```
+
+#### 9.3.2. Lấy booking theo ID
+- **GET** `http://localhost:5000/api/bookings/1`
+- **Headers:** `Authorization: Bearer USER_TOKEN`
+- **Response:**
+  ```json
+  {
+    "booking": {
+      "booking_id": 1,
+      "booking_code": "BK1JQ2K3L4M5",
+      "check_in_date": "2024-01-15",
+      "check_out_date": "2024-01-17",
+      "booking_status": "confirmed",
+      "payment_status": "paid",
+      "user": {
+        "user_id": 2,
+        "full_name": "Nguyễn Văn A",
+        "email": "nguyenvana@email.com"
+      },
+      "room": {
+        "room_id": 1,
+        "room_number": "101",
+        "room_type": {
+          "room_type_name": "Deluxe"
+        }
+      },
+      "booking_services": [
+        {
+          "booking_service_id": 1,
+          "service_id": 1,
+          "quantity": 2,
+          "unit_price": 200000,
+          "total_price": 400000,
+          "payment_type": "prepaid",
+          "status": "active",
+          "service": {
+            "service_name": "Đưa đón sân bay"
+          }
+        }
+      ]
+    },
+    "statusCode": 200
+  }
+  ```
+
+#### 9.3.3. Check-in
+- **POST** `http://localhost:5000/api/bookings/1/check-in`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Response:**
+  ```json
+  {
+    "message": "Check-in thành công",
+    "check_in_time": "2024-01-15 14:30:00",
+    "statusCode": 200
+  }
+  ```
+
+#### 9.3.4. Check-out
+- **POST** `http://localhost:5000/api/bookings/1/check-out`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Response:**
+  ```json
+  {
+    "message": "Check-out thành công",
+    "check_out_time": "2024-01-17 12:00:00",
+    "statusCode": 200
+  }
+  ```
+
+#### 9.3.5. Hủy booking
+- **POST** `http://localhost:5000/api/bookings/1/cancel`
+- **Headers:** `Authorization: Bearer USER_TOKEN`
+- **Body:**
+  ```json
+  {
+    "reason": "Thay đổi kế hoạch"
+  }
+  ```
+- **Response:**
+  ```json
+  {
+    "message": "Hủy booking thành công",
+    "statusCode": 200
+  }
+  ```
+
+#### 9.3.6. Tạo hóa đơn PDF
+- **GET** `http://localhost:5000/api/bookings/1/invoice/pdf`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Response:** File PDF download
+
+#### 9.3.7. Xem hóa đơn HTML
+- **GET** `http://localhost:5000/api/bookings/1/invoice`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Response:** HTML hóa đơn
+
+### 9.4. HƯỚNG DẪN TEST TỪNG BƯỚC
+
+#### Bước 1: Chuẩn bị dữ liệu (làm 1 lần)
+1. **Tạo Hotel** → Lưu `hotel_id`
+2. **Tạo Room Type** → Lưu `room_type_id`  
+3. **Tạo Room** → Lưu `room_id`
+4. **Tạo Room Price** → Cấu hình giá phòng
+5. **Tạo Services** → Lưu `service_id`
+6. **Tạo User (Customer)** → Lưu `user_id`
+7. **Tạo Admin User** → Lưu `admin_id`
+
+#### Bước 2: Test Luồng 1 - Đặt phòng trực tuyến
+1. **Đăng nhập customer:**
+   ```bash
+   POST /api/auth/login
+   {
+     "email": "customer@example.com",
+     "password": "password123"
+   }
+   ```
+   → Lưu `token` từ response
+
+2. **Giữ chỗ tạm thời:**
+   ```bash
+   POST /api/bookings/temp-booking
+   Headers: Authorization: Bearer {token}
+   {
+     "room_id": 1,
+     "check_in_date": "2025-10-21",
+     "check_out_date": "2025-10-22",
+     "num_person": 2
+   }
+   ```
+   → Lưu `temp_booking_key` từ response
+
+3. **Thêm dịch vụ trả trước:**
+   ```bash
+   POST /api/bookings/temp-booking/add-service
+   Headers: Authorization: Bearer {token}
+   {
+     "temp_booking_key": "{temp_booking_key}",
+     "service_id": 1,
+     "quantity": 2,
+     "payment_type": "prepaid"
+   }
+   ```
+
+4. **Tạo link thanh toán PayOS:**
+   ```bash
+   POST /api/bookings/create-payment-link
+   Headers: Authorization: Bearer {token}
+   {
+     "temp_booking_key": "{temp_booking_key}",
+     "promotion_code": "SUMMER2024" // optional
+   }
+   ```
+   → Lưu `payment_url` và `order_code`
+
+5. **Thanh toán qua PayOS** (mô phỏng webhook):
+   ```bash
+   POST /api/bookings/payment-webhook
+   {
+     "orderCode": "{order_code}",
+     "status": "PAID",
+     "buyerName": "Nguyễn Văn A",
+     "buyerEmail": "customer@example.com"
+   }
+   ```
+
+6. **Kiểm tra booking đã tạo:**
+   ```bash
+   GET /api/bookings/1
+   Headers: Authorization: Bearer {token}
+   ```
+
+#### Bước 3: Test Luồng 2 - Đặt phòng trực tiếp
+1. **Đăng nhập admin:**
+   ```bash
+   POST /api/auth/login
+   {
+     "email": "admin@example.com",
+     "password": "admin123"
+   }
+   ```
+   → Lưu `admin_token`
+
+2. **Tạo booking walk-in:**
+   ```bash
+   POST /api/bookings/walk-in
+   Headers: Authorization: Bearer {admin_token}
+   {
+     "user_id": 2,
+     "room_id": 1,
+     "check_in_date": "2025-10-21",
+     "check_out_date": "2025-10-22",
+     "num_person": 2,
+     "note": "Khách VIP",
+     "services": [
+       {
+         "service_id": 1,
+         "quantity": 1,
+         "payment_type": "postpaid"
+       }
+     ]
+   }
+   ```
+
+3. **Check-in:**
+   ```bash
+   POST /api/bookings/1/check-in
+   Headers: Authorization: Bearer {admin_token}
+   ```
+
+4. **Check-out:**
+   ```bash
+   POST /api/bookings/1/check-out
+   Headers: Authorization: Bearer {admin_token}
+   ```
+
+5. **Tạo hóa đơn PDF:**
+   ```bash
+   GET /api/bookings/1/invoice/pdf
+   Headers: Authorization: Bearer {admin_token}
+   ```
+
+### 9.5. TEST CASES CHI TIẾT
+
+#### Test Case 1: Đặt phòng trực tuyến hoàn chỉnh
+1. **Đăng nhập user:** `POST /api/auth/login`
+2. **Giữ chỗ tạm thời:** `POST /api/bookings/temp-booking`
+3. **Thêm dịch vụ trả trước:** `POST /api/bookings/temp-booking/add-service`
+4. **Tạo link thanh toán:** `POST /api/bookings/create-payment-link`
+5. **Thanh toán qua PayOS** (mô phỏng)
+6. **Webhook xử lý kết quả:** `POST /api/bookings/payment-webhook`
+7. **Kiểm tra booking đã tạo:** `GET /api/bookings/1`
+
+#### Test Case 2: Đặt phòng trực tiếp
+1. **Đăng nhập admin:** `POST /api/auth/login`
+2. **Tạo booking walk-in:** `POST /api/bookings/walk-in`
+3. **Check-in:** `POST /api/bookings/1/check-in`
+4. **Check-out:** `POST /api/bookings/1/check-out`
+5. **Tạo hóa đơn:** `GET /api/bookings/1/invoice/pdf`
+
+#### Test Case 3: Email nhắc nhở
+1. **Tạo booking với check-in ngày mai**
+2. **Đợi 18:00 VN** (cron job chạy)
+3. **Kiểm tra email nhắc nhở** trong inbox
+
+#### Test Case 4: Hủy dịch vụ trả trước
+1. **Tạo booking với dịch vụ trả trước**
+2. **Hủy dịch vụ** (API sẽ được thêm sau)
+3. **Kiểm tra hoàn tiền** (trừ phí hủy 10%)
+
+### 9.5. LƯU Ý QUAN TRỌNG
+
+1. **Redis TTL:** Booking tạm thời hết hạn sau 30 phút
+2. **PayOS Webhook:** Cần cấu hình webhook URL trong PayOS dashboard
+3. **Email Service:** Cần cấu hình SMTP trong .env
+4. **PDF Service:** Cần cài đặt Puppeteer (đã tự động cài)
+5. **Cron Jobs:** 
+   - Promotion expire: 00:00 VN mỗi ngày
+   - Email reminder: 18:00 VN mỗi ngày
+
+---
+
+## 10. TEST FLOW HOÀN CHỈNH - TỪ TẠO TÀI KHOẢN ĐẾN ĐẶT PHÒNG THÀNH CÔNG
+
+### 10.1. CHUẨN BỊ TEST
+
+**Bước 1: Cấu hình Database (chỉ cần làm 1 lần)**
+```bash
+# 1. Tạo file .env (copy từ SETUP_DATABASE.md)
+# 2. Cập nhật thông tin database trong .env
+# 3. Không cần tạo database thủ công nữa!
+```
+
+**Bước 2: Khởi động server (tự động tạo database)**
+```bash
+npm start
+# Database sẽ được tạo tự động nếu chưa tồn tại
+```
+
+**Hoặc reset database (nếu cần):**
+```bash
+# Xóa và tạo lại database
+node reset-database.js
+```
+
+### 10.2. TEST FLOW CHI TIẾT
+
+#### **Phase 1: Tạo User Accounts**
+
+**1. Tạo Admin User**
+- **POST** `http://localhost:5000/api/auth/register`
+- **Body:**
+  ```json
+  {
+    "full_name": "Admin User",
+    "email": "admin@example.com",
+    "password": "admin123",
+    "phone": "0987654321",
+    "role": "admin"
+  }
+  ```
+- **Response:** Lưu `user_id` từ response
+
+**2. Tạo Customer User**
+- **POST** `http://localhost:5000/api/auth/register`
+- **Body:**
+  ```json
+  {
+    "full_name": "Nguyễn Văn A",
+    "email": "customer@example.com",
+    "password": "password123",
+    "phone": "0123456789",
+    "role": "customer"
+  }
+  ```
+- **Response:** Lưu `user_id` từ response
+
+#### **Phase 2: Đăng nhập và Tạo Dữ liệu Cơ bản**
+
+**3. Đăng nhập Admin**
+- **POST** `http://localhost:5000/api/auth/login`
+- **Body:**
+  ```json
+  {
+    "email": "admin@example.com",
+    "password": "admin123"
+  }
+  ```
+- **Response:** Lưu `token` từ response → Dùng làm `ADMIN_TOKEN`
+
+**4. Tạo Hotel**
+- **POST** `http://localhost:5000/api/hotels`
+- **Headers:** `Authorization: Bearer {ADMIN_TOKEN}`
+- **Body:**
+  ```json
+  {
+    "name": "Khách sạn ABC",
+    "address": "123 Đường ABC, Quận 1, TP.HCM",
+    "phone": "1900-xxxx",
+    "email": "info@hotelabc.com",
+    "description": "Khách sạn 5 sao tại trung tâm TP.HCM",
+    "images": ["hotel1.jpg", "hotel2.jpg"]
+  }
+  ```
+- **Response:** Lưu `hotel_id` từ response
+
+**5. Tạo Room Type**
+- **POST** `http://localhost:5000/api/room-types`
+- **Headers:** `Authorization: Bearer {ADMIN_TOKEN}`
+- **Body:** form data để thêm ảnh
+  ```json
+  {
+    "room_type_name": "Deluxe normal",
+    "category": "Deluxe",
+    "capacity": 2,
+    "description": "Phòng deluxe view biển",
+    "amenities": {"wifi": "Tốc độ cao miễn phí", "tv": "Smart TV 55 inch"},
+    "area": 35,
+    "quantity": 10,
+    "images": ["room1.jpg", "room2.jpg"]
+  }
+  ```
+- **Response:** Lưu `room_type_id` từ response
+
+**6. Tạo Room**
+- **POST** `http://localhost:5000/api/rooms`
+- **Headers:** `Authorization: Bearer {ADMIN_TOKEN}`
+- **Body:**
+  ```json
+  {
+    "hotel_id": {hotel_id},
+    "room_type_id": {room_type_id},
+    "room_num": 101,
+    "status": "available"
+  }
+  ```
+- **Response:** Lưu `room_id` từ response
+
+**7. Tạo Room Price**
+- **POST** `http://localhost:5000/api/room-prices`
+- **Headers:** `Authorization: Bearer {ADMIN_TOKEN}`
+- **Body:**
+  ```json
+  {
+    "room_type_id": {room_type_id},
+    "start_date": "2025-01-01",
+    "end_date": "2025-12-31",
+    "price_per_night": 1200000
+  }
+  ```
+
+**8. Tạo Service**
+- **POST** `http://localhost:5000/api/services`
+- **Headers:** `Authorization: Bearer {ADMIN_TOKEN}`
+- **Body:**
+  ```json
+  {
+    "hotel_id": {hotel_id},
+    "name": "Đưa đón sân bay",
+    "description": "Dịch vụ đưa đón sân bay Tân Sơn Nhất",
+    "price": 200000,
+    "service_type": "prepaid",
+    "is_available": true
+  }
+  ```
+- **Response:** Lưu `service_id` từ response
+
+#### **Phase 3: Luồng Đặt Phòng Trực Tuyến**
+
+**9. Đăng nhập Customer**
+- **POST** `http://localhost:5000/api/auth/login`
+- **Body:**
+  ```json
+  {
+    "email": "customer@example.com",
+    "password": "password123"
+  }
+  ```
+- **Response:** Lưu `token` từ response → Dùng làm `CUSTOMER_TOKEN`
+
+**10. Giữ chỗ tạm thời (Temp Booking)**
+- **POST** `http://localhost:5000/api/bookings/temp-booking`
+- **Headers:** `Authorization: Bearer {CUSTOMER_TOKEN}`
+- **Body:**
+  ```json
+  {
+    "room_id": {room_id},
+    "check_in_date": "2025-10-21",
+    "check_out_date": "2025-10-22",
+    "num_person": 2
+  }
+  ```
+- **Response:** Lưu `temp_booking_key` từ response
+
+**11. Thêm dịch vụ vào temp booking**
+- **POST** `http://localhost:5000/api/bookings/temp-booking/add-service`
+- **Headers:** `Authorization: Bearer {CUSTOMER_TOKEN}`
+- **Body:**
+  ```json
+  {
+    "temp_booking_key": "{temp_booking_key}",
+    "service_id": {service_id},
+    "quantity": 2,
+    "payment_type": "prepaid"
+  }
+  ```
+
+**12. Tạo Promotion (Admin)**
+- **POST** `http://localhost:5000/api/promotions`
+- **Headers:** `Authorization: Bearer {ADMIN_TOKEN}`
+- **Body:**
+  ```json
+  {
+    "promotion_code": "SUMMER2024",
+    "name": "Giảm giá mùa hè",
+    "description": "Giảm 20% cho đơn hàng từ 1 triệu",
+    "discount_type": "percentage",
+    "discount_value": 20,
+    "min_order_amount": 1000000,
+    "max_discount_amount": 500000,
+    "start_date": "2025-01-01",
+    "end_date": "2025-12-31",
+    "usage_limit": 100,
+    "is_active": true
+  }
+  ```
+- **Response:** Lưu `promotion_id` từ response
+
+**13. Tạo link thanh toán PayOS (có promotion)**
+- **POST** `http://localhost:5000/api/bookings/create-payment-link`
+- **Headers:** `Authorization: Bearer {CUSTOMER_TOKEN}`
+- **Body:**
+  ```json
+  {
+    "temp_booking_key": "{temp_booking_key}",
+    "promotion_code": "SUMMER2024"
+  }
+  ```
+- **Response:** Lưu `payment_url`, `order_code`, và `discount_amount`
+
+**14. Mô phỏng webhook thanh toán thành công**
+- **POST** `http://localhost:5000/api/bookings/payment-webhook`
+- **Body:**
+  ```json
+  {
+    "orderCode": "{order_code}",
+    "status": "PAID",
+    "buyerName": "Nguyễn Văn A",
+    "buyerEmail": "customer@example.com"
+  }
+  ```
+- **Response:** Lưu `booking_id` từ response
+
+**15. Kiểm tra booking đã tạo (có promotion)**
+- **GET** `http://localhost:5000/api/bookings/{booking_id}`
+- **Headers:** `Authorization: Bearer {CUSTOMER_TOKEN}`
+- **Response:** Kiểm tra `discount_amount` và `final_amount`
+
+#### **Phase 4: Test Walk-in Booking**
+
+**16. Tạo booking walk-in (Admin)**
+- **POST** `http://localhost:5000/api/bookings/walk-in`
+- **Headers:** `Authorization: Bearer {ADMIN_TOKEN}`
+- **Body:**
+  ```json
+  {
+    "user_id": 2,
+    "room_id": {room_id},
+    "check_in_date": "2025-10-23",
+    "check_out_date": "2025-10-24",
+    "num_person": 2,
+    "note": "Khách VIP",
+    "services": [
+      {
+        "service_id": {service_id},
+        "quantity": 1,
+        "payment_type": "postpaid"
+      }
+    ]
+  }
+  ```
+
+### 10.3. TEST PROMOTION RIÊNG BIỆT
+
+#### **Test Case 1: Promotion hợp lệ**
+- **Tạo promotion** với `promotion_code: "SUMMER2024"`
+- **Áp dụng promotion** khi tạo payment link
+- **Kiểm tra** `discount_amount` và `final_amount` trong response
+
+#### **Test Case 2: Promotion không hợp lệ**
+- **Tạo promotion** với `promotion_code: "EXPIRED"`
+- **Set end_date** trong quá khứ
+- **Áp dụng promotion** → Phải trả về lỗi "Promotion đã hết hạn"
+
+#### **Test Case 3: Promotion không đủ điều kiện**
+- **Tạo promotion** với `min_order_amount: 5000000`
+- **Tạo booking** với tổng tiền < 5 triệu
+- **Áp dụng promotion** → Phải trả về lỗi "Không đủ điều kiện"
+
+#### **Test Case 4: Promotion đã hết lượt sử dụng**
+- **Tạo promotion** với `usage_limit: 1`
+- **Sử dụng promotion** 1 lần
+- **Sử dụng promotion** lần 2 → Phải trả về lỗi "Đã hết lượt sử dụng"
+
+### 10.4. KẾT QUẢ MONG ĐỢI
+
+**Sau khi chạy xong test flow:**
+- ✅ 2 user accounts (admin + customer)
+- ✅ 1 hotel với 1 room type và 1 room
+- ✅ 1 service khách sạn
+- ✅ 1 promotion (SUMMER2024)
+- ✅ 1 booking trực tuyến (đã thanh toán + có promotion)
+- ✅ 1 booking walk-in (chưa thanh toán)
+
+**Dữ liệu được tạo:**
+```
+Admin: admin@example.com / admin123
+Customer: customer@example.com / password123
+Hotel ID: 1
+Room Type ID: 1
+Room ID: 1
+Service ID: 1
+Promotion ID: 1 (SUMMER2024)
+Booking ID: 1 (online + promotion)
+Booking ID: 2 (walk-in)
+```
+
+### 10.5. SCRIPT TỰ ĐỘNG
+
+**Tạo dữ liệu mẫu nhanh:**
+```bash
+# Tạo tất cả dữ liệu mẫu (bao gồm promotion)
+node create-sample-data.js
+
+# Hoặc tạo từng phần
+node test-create-services.js
+node test-booking-service.js
+```
+
+**Tạo promotion mẫu:**
+```bash
+# Tạo promotion test
+node test-create-promotions.js
+```
+
+---
+
+## 11. TROUBLESHOOTING
+
+### Lỗi thường gặp
+1. **401 Unauthorized**: Token hết hạn hoặc không hợp lệ
+2. **404 Not Found**: Không tìm thấy resource
+3. **500 Internal Server Error**: Lỗi server, kiểm tra logs
+4. **Validation Error**: Dữ liệu đầu vào không hợp lệ
+
+### Kiểm tra logs
+- Xem console logs của server
+- Kiểm tra database connection
+- Verify Redis connection
+- Check PayOS configuration
+
+---
+
+## 12. 🚀 HƯỚNG DẪN TEST PAYOS THẬT
+
+### **Bước 1: Tạo booking tạm thời**
+```bash
+POST http://localhost:5000/api/booking/temp
+Authorization: Bearer <customer_token>
+Content-Type: application/json
+
+{
+  "room_id": 1,
+  "check_in_date": "2025-10-21",
+  "check_out_date": "2025-10-22", 
+  "num_person": 2
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Giữ chỗ tạm thời thành công",
+  "temp_booking_key": "temp_booking_2_1_2025-10-21_2025-10-22",
+  "expires_in": 1800,
+  "booking_data": {
+    "user_id": 2,
+    "room_id": 1,
+    "check_in_date": "2025-10-21",
+    "check_out_date": "2025-10-22",
+    "num_person": 2,
+    "room_price": 500,
+    "total_price": 500,
+    "nights": 1,
+    "room_type_id": 1,
+    "room_number": "101",
+    "room_type_name": "Deluxe normal"
+  }
+}
+```
+
+### **Bước 2: Thêm dịch vụ (tùy chọn)**
+```bash
+POST http://localhost:5000/api/booking/temp/add-service
+Authorization: Bearer <customer_token>
+Content-Type: application/json
+
+{
+  "temp_booking_key": "temp_booking_2_1_2025-10-21_2025-10-22",
+  "service_id": 1,
+  "quantity": 2,
+  "payment_type": "prepaid"
+}
+```
+
+### **Bước 3: Tạo link thanh toán PayOS**
+```bash
+POST http://localhost:5000/api/booking/payment/create-link
+Authorization: Bearer <customer_token>
+Content-Type: application/json
+
+{
+  "temp_booking_key": "temp_booking_2_1_2025-10-21_2025-10-22",
+  "promotion_code": "SUMMER2025"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Tạo link thanh toán thành công",
+  "payment_url": "https://pay.payos.vn/web/...",
+  "qr_code": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+  "order_code": 1760945033417144,
+  "booking_code": "BKMGYT7FT5I5RG0K",
+  "amount": 500,
+  "expires_in": 1800
+}
+```
+
+### **Bước 4: Test thanh toán thật**
+
+#### **Option A: Test với PayOS Sandbox**
+1. **Mở payment_url** trong browser
+2. **Chọn phương thức thanh toán** (QR Code, Banking, etc.)
+3. **Sử dụng thông tin test:**
+   - **Số thẻ:** `4111111111111111`
+   - **Ngày hết hạn:** `12/25`
+   - **CVV:** `123`
+   - **Tên chủ thẻ:** `NGUYEN VAN A`
+
+#### **Option B: Test với QR Code thật**
+1. **Mở app ngân hàng** (Vietcombank, BIDV, etc.)
+2. **Quét QR code** từ response
+3. **Nhập số tiền:** `500 VNĐ`
+4. **Xác nhận thanh toán**
+
+### **Bước 5: Kiểm tra kết quả**
+
+#### **5.1. Kiểm tra webhook log:**
+```bash
+# Trong terminal server, bạn sẽ thấy:
+Webhook received: {
+  orderCode: '1760945033417144',
+  status: 'PAID',
+  buyerName: 'Nguyễn Văn A',
+  buyerEmail: 'canon1609.dev@gmail.com'
+}
+```
+
+#### **5.2. Kiểm tra database:**
+```sql
+-- Kiểm tra booking đã tạo
+SELECT * FROM bookings WHERE booking_code = 'BKMGYT7FT5I5RG0K';
+
+-- Kiểm tra payment
+SELECT * FROM payments WHERE transaction_id = '1760945033417144';
+
+-- Kiểm tra booking services
+SELECT * FROM booking_services WHERE booking_id = <booking_id>;
+```
+
+#### **5.3. Kiểm tra email:**
+- **Email xác nhận** sẽ được gửi đến user
+- **Nội dung đẹp** với HTML template
+
+## 🎯 Test Cases
+
+### **Test Case 1: Thanh toán thành công**
+- ✅ Tạo booking tạm thời
+- ✅ Tạo payment link
+- ✅ Thanh toán thành công
+- ✅ Webhook nhận được
+- ✅ Booking chuyển sang 'confirmed'
+- ✅ Email xác nhận được gửi
+
+### **Test Case 2: Thanh toán thất bại**
+- ✅ Tạo booking tạm thời
+- ✅ Tạo payment link
+- ❌ Thanh toán thất bại
+- ❌ Webhook không nhận được
+- ❌ Booking vẫn 'pending'
+- ❌ Email không được gửi
+
+### **Test Case 3: Booking hết hạn**
+- ✅ Tạo booking tạm thời
+- ⏰ Đợi 30 phút (TTL)
+- ❌ Booking tạm thời bị xóa
+- ❌ Webhook không tìm thấy booking
+
+## 🔧 Troubleshooting
+
+### **Lỗi "Webhook không hợp lệ":**
+- Kiểm tra `PAYOS_CHECKSUM_KEY` trong .env
+- Đảm bảo webhook URL đúng
+- Kiểm tra PayOS dashboard webhook settings
+
+### **Lỗi "Temp booking not found":**
+- Booking tạm thời đã hết hạn (30 phút)
+- Tạo lại flow từ đầu
+- Kiểm tra Redis connection
+
+### **Lỗi "Email sending failed":**
+- Kiểm tra `EMAIL_USER` và `EMAIL_PASS` trong .env
+- Sử dụng App Password cho Gmail
+- Kiểm tra SMTP settings
+
+## 📱 Test với Mobile App
+
+### **iOS/Android App:**
+1. **Mở app ngân hàng**
+2. **Chọn "Quét QR"**
+3. **Quét QR code** từ payment_url
+4. **Nhập số tiền** chính xác
+5. **Xác nhận thanh toán**
+
+### **Web Browser:**
+1. **Mở payment_url** trong browser
+2. **Chọn phương thức thanh toán**
+3. **Nhập thông tin thẻ** (sandbox)
+4. **Xác nhận thanh toán**
+
+## 🎉 Kết quả mong đợi
+
+Sau khi thanh toán thành công:
+- ✅ **Booking status:** `confirmed`
+- ✅ **Payment status:** `paid`
+- ✅ **Email xác nhận:** Gửi thành công
+- ✅ **Database:** Cập nhật đầy đủ
+- ✅ **Webhook:** Xử lý thành công
+
+---
+
+**💡 Lưu ý:** 
+- Sử dụng PayOS Sandbox để test an toàn
+- Không sử dụng thông tin thẻ thật khi test
+- Kiểm tra logs để debug khi có lỗi
+- Test trên nhiều thiết bị khác nhau
 

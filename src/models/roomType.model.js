@@ -1,5 +1,5 @@
 const { Sequelize, DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const { sequelize } = require('../config/database');
 const moment = require('moment-timezone');
 
 const RoomType = sequelize.define('RoomType', {

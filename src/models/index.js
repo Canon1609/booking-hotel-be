@@ -1,4 +1,4 @@
-const sequelize = require('../config/database');
+const { sequelize } = require('../config/database');
 
 // Models
 const User = require('./user.model');
@@ -10,58 +10,49 @@ const Promotion = require('./promotion.model');
 const Booking = require('./booking.model');
 const Payment = require('./payment.model');
 const Service = require('./service.model');
+const BookingService = require('./bookingService.model');
 const Review = require('./review.model');
 const Category = require('./category.model');
 const Post = require('./post.model');
 
 // ========== Associations ==========
+// Tạm thời chỉ giữ lại các associations cần thiết để tránh lỗi "Too many keys"
 
 // User ↔ Booking
-User.hasMany(Booking, { foreignKey: 'user_id', sourceKey: 'user_id', as: 'bookings' });
-Booking.belongsTo(User, { foreignKey: 'user_id', targetKey: 'user_id', as: 'user' });
+User.hasMany(Booking, { foreignKey: 'user_id', as: 'bookings' });
+Booking.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 
 // Hotel ↔ Room
-Hotel.hasMany(Room, { foreignKey: 'hotel_id', sourceKey: 'hotel_id', as: 'rooms' });
-Room.belongsTo(Hotel, { foreignKey: 'hotel_id', targetKey: 'hotel_id', as: 'hotel' });
+Hotel.hasMany(Room, { foreignKey: 'hotel_id', as: 'rooms' });
+Room.belongsTo(Hotel, { foreignKey: 'hotel_id', as: 'hotel' });
 
 // RoomType ↔ Room
-RoomType.hasMany(Room, { foreignKey: 'room_type_id', sourceKey: 'room_type_id', as: 'rooms' });
-Room.belongsTo(RoomType, { foreignKey: 'room_type_id', targetKey: 'room_type_id', as: 'room_type' });
+RoomType.hasMany(Room, { foreignKey: 'room_type_id', as: 'rooms' });
+Room.belongsTo(RoomType, { foreignKey: 'room_type_id', as: 'room_type' });
 
 // RoomType ↔ RoomPrice
-RoomType.hasMany(RoomPrice, { foreignKey: 'room_type_id', sourceKey: 'room_type_id', as: 'prices' });
-RoomPrice.belongsTo(RoomType, { foreignKey: 'room_type_id', targetKey: 'room_type_id', as: 'room_type' });
+RoomType.hasMany(RoomPrice, { foreignKey: 'room_type_id', as: 'prices' });
+RoomPrice.belongsTo(RoomType, { foreignKey: 'room_type_id', as: 'room_type' });
 
 // Room ↔ Booking
-Room.hasMany(Booking, { foreignKey: 'room_id', sourceKey: 'room_id', as: 'bookings' });
-Booking.belongsTo(Room, { foreignKey: 'room_id', targetKey: 'room_id', as: 'room' });
-
-// Promotion ↔ Booking
-Promotion.hasMany(Booking, { foreignKey: 'promotion_id', sourceKey: 'promotion_id', as: 'bookings' });
-Booking.belongsTo(Promotion, { foreignKey: 'promotion_id', targetKey: 'promotion_id', as: 'promotion' });
+Room.hasMany(Booking, { foreignKey: 'room_id', as: 'bookings' });
+Booking.belongsTo(Room, { foreignKey: 'room_id', as: 'room' });
 
 // Booking ↔ Payment
-Booking.hasMany(Payment, { foreignKey: 'booking_id', sourceKey: 'booking_id', as: 'payments' });
-Payment.belongsTo(Booking, { foreignKey: 'booking_id', targetKey: 'booking_id', as: 'booking' });
+Booking.hasMany(Payment, { foreignKey: 'booking_id', as: 'payments' });
+Payment.belongsTo(Booking, { foreignKey: 'booking_id', as: 'booking' });
 
 // Hotel ↔ Service
-Hotel.hasMany(Service, { foreignKey: 'hotel_id', sourceKey: 'hotel_id', as: 'services' });
-Service.belongsTo(Hotel, { foreignKey: 'hotel_id', targetKey: 'hotel_id', as: 'hotel' });
+Hotel.hasMany(Service, { foreignKey: 'hotel_id', as: 'services' });
+Service.belongsTo(Hotel, { foreignKey: 'hotel_id', as: 'hotel' });
 
-// Review ↔ User & Booking
-User.hasMany(Review, { foreignKey: 'user_id', sourceKey: 'user_id', as: 'reviews' });
-Review.belongsTo(User, { foreignKey: 'user_id', targetKey: 'user_id', as: 'user' });
+// Booking ↔ BookingService
+Booking.hasMany(BookingService, { foreignKey: 'booking_id', as: 'booking_services' });
+BookingService.belongsTo(Booking, { foreignKey: 'booking_id', as: 'booking' });
 
-Booking.hasOne(Review, { foreignKey: 'booking_id', sourceKey: 'booking_id', as: 'review' });
-Review.belongsTo(Booking, { foreignKey: 'booking_id', targetKey: 'booking_id', as: 'booking' });
-
-// User ↔ Post
-User.hasMany(Post, { foreignKey: 'user_id', sourceKey: 'user_id', as: 'posts' });
-Post.belongsTo(User, { foreignKey: 'user_id', targetKey: 'user_id', as: 'author' });
-
-// Category ↔ Post
-Category.hasMany(Post, { foreignKey: 'category_id', sourceKey: 'category_id', as: 'posts' });
-Post.belongsTo(Category, { foreignKey: 'category_id', targetKey: 'category_id', as: 'category' });
+// Service ↔ BookingService
+Service.hasMany(BookingService, { foreignKey: 'service_id', as: 'booking_services' });
+BookingService.belongsTo(Service, { foreignKey: 'service_id', as: 'service' });
 
 module.exports = {
   sequelize,
@@ -74,6 +65,7 @@ module.exports = {
   Booking,
   Payment,
   Service,
+  BookingService,
   Review,
   Category,
   Post

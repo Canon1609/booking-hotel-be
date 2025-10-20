@@ -1,5 +1,5 @@
 const { Sequelize, DataTypes } = require('sequelize');
-const sequelize = require('../config/database'); // Đảm bảo bạn đã cấu hình kết nối DB trong database.js
+const { sequelize } = require('../config/database'); // Đảm bảo bạn đã cấu hình kết nối DB trong database.js
 
 const moment = require('moment-timezone');
 

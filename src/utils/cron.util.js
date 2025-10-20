@@ -20,9 +20,8 @@ const updateExpiredPromotions = async () => {
 
     if (result[0] > 0) {
       console.log(`[CRON] Đã cập nhật ${result[0]} promotion hết hạn lúc ${now}`);
-    } else {
-      console.log(`[CRON] Không có promotion nào hết hạn lúc ${now}`);
     }
+    // Không log khi không có promotion nào hết hạn để tránh spam
   } catch (error) {
     console.error('[CRON] Lỗi khi cập nhật promotions hết hạn:', error.message);
   }

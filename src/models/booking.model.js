@@ -1,5 +1,5 @@
 const { Sequelize, DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const { sequelize } = require('../config/database');
 const moment = require('moment-timezone');
 
 const Booking = sequelize.define('Booking', {
@@ -37,7 +37,7 @@ const Booking = sequelize.define('Booking', {
     allowNull: false
   },
   booking_status: {
-    type: DataTypes.ENUM('pending', 'confirmed', 'cancelled'),
+    type: DataTypes.ENUM('pending', 'confirmed', 'cancelled', 'completed'),
     allowNull: false,
     defaultValue: 'pending'
   },
@@ -63,6 +63,32 @@ const Booking = sequelize.define('Booking', {
     type: DataTypes.STRING(50),
     allowNull: true,
     unique: true
+  },
+  booking_type: {
+    type: DataTypes.ENUM('online', 'walkin'),
+    allowNull: false,
+    defaultValue: 'online',
+    comment: 'online: đặt trực tuyến, walkin: đặt trực tiếp'
+  },
+  temp_booking_key: {
+    type: DataTypes.STRING(100),
+    allowNull: true,
+    comment: 'Key Redis cho booking tạm thời'
+  },
+  payos_order_code: {
+    type: DataTypes.STRING(50),
+    allowNull: true,
+    comment: 'Mã đơn hàng PayOS'
+  },
+  check_in_time: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Thời gian check-in thực tế'
+  },
+  check_out_time: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Thời gian check-out thực tế'
   },
   created_at: {
     type: DataTypes.DATE,

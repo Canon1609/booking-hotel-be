@@ -1,5 +1,5 @@
 const { Sequelize, DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const { sequelize } = require('../config/database');
 const moment = require('moment-timezone');
 
 const Service = sequelize.define('Service', {
@@ -27,6 +27,21 @@ const Service = sequelize.define('Service', {
     // Lưu ý: cột DB có thể là JSON hoặc TEXT; Sequelize vẫn map STRING nếu cần
     type: DataTypes.JSON,
     allowNull: true
+  },
+  price: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: false,
+    defaultValue: 0
+  },
+  service_type: {
+    type: DataTypes.ENUM('prepaid', 'postpaid'),
+    allowNull: false,
+    defaultValue: 'prepaid'
+  },
+  is_available: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true
   },
   created_at: {
     type: DataTypes.DATE,
