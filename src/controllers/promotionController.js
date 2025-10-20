@@ -184,6 +184,8 @@ exports.validatePromotionCode = async (req, res) => {
     }
 
     if (endDate && now.isAfter(endDate)) {
+      // Tự động cập nhật status thành expired nếu đã hết hạn
+      await promotion.update({ status: 'expired' });
       return res.status(400).json({ message: 'Mã promotion đã hết hạn' });
     }
 
@@ -232,6 +234,8 @@ exports.applyPromotionCode = async (req, res) => {
     }
 
     if (endDate && now.isAfter(endDate)) {
+      // Tự động cập nhật status thành expired nếu đã hết hạn
+      await promotion.update({ status: 'expired' });
       return res.status(400).json({ message: 'Mã promotion đã hết hạn' });
     }
 
