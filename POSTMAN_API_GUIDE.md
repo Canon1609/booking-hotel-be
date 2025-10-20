@@ -262,6 +262,68 @@ Headers: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
   - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
 
 
+#### 4.7.1. Tìm kiếm phòng trống + sắp xếp theo giá (Public)
+
+- Method: `GET`
+- URL: `http://localhost:5000/api/rooms/availability/search`
+- Query params:
+  - `check_in` (bắt buộc) — ví dụ: `2025-10-25`
+  - `check_out` (bắt buộc) — ví dụ: `2025-10-27`
+  - `guests` (tùy chọn) — số khách, dùng để lọc theo `capacity` của `room_type`
+  - `hotel_id` (tùy chọn) — lọc theo khách sạn
+  - `room_type_id` (tùy chọn) — lọc theo loại phòng
+  - `min_price` (tùy chọn) — giá tối thiểu mỗi đêm
+  - `max_price` (tùy chọn) — giá tối đa mỗi đêm
+  - `sort` (tùy chọn) — `price_asc` hoặc `price_desc` (mặc định: `price_asc`)
+  - `page` (tùy chọn) — mặc định `1`
+  - `limit` (tùy chọn) — mặc định `10`
+
+- Ví dụ cơ bản (lọc + giá tăng dần):
+  - `GET http://localhost:5000/api/rooms/availability/search?check_in=2025-10-25&check_out=2025-10-27&guests=2&hotel_id=1&sort=price_asc`
+
+- Ví dụ nâng cao (khoảng giá + giá giảm dần):
+  - `GET http://localhost:5000/api/rooms/availability/search?check_in=2025-10-25&check_out=2025-10-27&min_price=500000&max_price=2000000&sort=price_desc&page=1&limit=12`
+
+- Response mẫu:
+```json
+{
+  "total": 2,
+  "rooms": [
+    {
+      "room_id": 1,
+      "hotel": {
+        "hotel_id": 1,
+        "hotel_name": "Khách sạn ABC",
+        "address": "123 Đường ABC",
+        "city": "TP.HCM"
+      },
+      "room_type": {
+        "room_type_id": 1,
+        "room_type_name": "Deluxe",
+        "capacity": 2,
+        "images": ["room1.jpg"],
+        "amenities": {"wifi": "miễn phí"},
+        "area": 30,
+        "prices": [
+          {
+            "price_id": 10,
+            "start_date": "2025-10-01T00:00:00.000Z",
+            "end_date": "2025-10-31T00:00:00.000Z",
+            "price_per_night": 1200000
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
+Ghi chú:
+- Hệ thống tự loại trừ các phòng đã có booking trùng lịch với trạng thái `confirmed`/`completed`.
+- Giá dùng để sắp xếp và lọc lấy theo `RoomPrice` bao trùm ngày `check_in`.
+- Nếu một loại phòng có nhiều `RoomPrice` bao trùm, record phù hợp nhất theo ngày `check_in` sẽ được chọn.
+
+
 
 ### 4.8. Giá phòng (Room Prices)
 
