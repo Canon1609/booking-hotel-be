@@ -32,7 +32,7 @@ async function syncDatabase() {
   try {
     // Import sequelize sau khi database đã được tạo
     const { sequelize } = require('./config/database');
-    const { ensureImagesColumns, ensureServiceFields, ensureUniqueRoomNumberPerHotel, ensureRoomPricesUpdatedAt, ensurePaymentEnums } = require('./utils/db.util');
+    const { ensureImagesColumns, ensureServiceFields, ensureUniqueRoomNumberPerHotel, ensureRoomPricesUpdatedAt, ensurePaymentEnums, ensureBookingStatusEnum, ensureBookingRoomType } = require('./utils/db.util');
     
     await sequelize.authenticate();
     console.log('Database connected');
@@ -74,6 +74,20 @@ async function syncDatabase() {
       console.log('Running one-time Payment ENUM values migration...');
       await ensurePaymentEnums();
       console.log('Payment ENUM values migration complete. You can remove DB_RUN_PAYMENT_ENUMS_MIGRATION flag.');
+    }
+    
+    // Chạy migration một lần cho Booking status ENUM
+    if (process.env.DB_RUN_BOOKING_STATUS_MIGRATION === 'true') {
+      console.log('Running one-time Booking status ENUM migration...');
+      await ensureBookingStatusEnum();
+      console.log('Booking status ENUM migration complete. You can remove DB_RUN_BOOKING_STATUS_MIGRATION flag.');
+    }
+    
+    // Chạy migration một lần cho Booking room type structure
+    if (process.env.DB_RUN_BOOKING_ROOM_TYPE_MIGRATION === 'true') {
+      console.log('Running one-time Booking room type structure migration...');
+      await ensureBookingRoomType();
+      console.log('Booking room type structure migration complete. You can remove DB_RUN_BOOKING_ROOM_TYPE_MIGRATION flag.');
     }
     
   } catch (error) {

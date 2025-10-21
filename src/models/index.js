@@ -34,7 +34,11 @@ Room.belongsTo(RoomType, { foreignKey: 'room_type_id', as: 'room_type' });
 RoomType.hasMany(RoomPrice, { foreignKey: 'room_type_id', as: 'prices' });
 RoomPrice.belongsTo(RoomType, { foreignKey: 'room_type_id', as: 'room_type' });
 
-// Room ↔ Booking
+// RoomType ↔ Booking (MỐI QUAN HỆ CHÍNH)
+RoomType.hasMany(Booking, { foreignKey: 'room_type_id', as: 'bookings' });
+Booking.belongsTo(RoomType, { foreignKey: 'room_type_id', as: 'room_type' });
+
+// Room ↔ Booking (MỐI QUAN HỆ PHỤ - chỉ khi đã gán phòng)
 Room.hasMany(Booking, { foreignKey: 'room_id', as: 'bookings' });
 Booking.belongsTo(Room, { foreignKey: 'room_id', as: 'room' });
 

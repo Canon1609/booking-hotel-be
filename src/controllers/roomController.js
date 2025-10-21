@@ -6,13 +6,41 @@ const redisService = require('../utils/redis.util');
 exports.createRoom = async (req, res) => {
   try {
     const { hotel_id, room_num, status, room_type_id } = req.body;
+    
     // enforce uniqueness of room number within a hotel
     const existing = await Room.findOne({ where: { hotel_id, room_num } });
     if (existing) {
       return res.status(400).json({ message: 'Số phòng đã tồn tại trong khách sạn này' });
     }
+
+    // Kiểm tra quantity của loại phòng
+    if (room_type_id) {
+      const roomType = await RoomType.findByPk(room_type_id);
+      if (!roomType) {
+        return res.status(404).json({ message: 'Không tìm thấy loại phòng' });
+      }
+
+      // Đếm số phòng hiện tại của loại phòng này
+      const currentRoomCount = await Room.count({ where: { room_type_id } });
+      
+      if (currentRoomCount >= roomType.quantity) {
+        return res.status(400).json({ 
+          message: `Loại phòng "${roomType.room_type_name}" chỉ được có tối đa ${roomType.quantity} phòng, hiện tại đã có ${currentRoomCount} phòng` 
+        });
+      }
+    }
+
     const room = await Room.create({ hotel_id, room_num, status, room_type_id });
-    return res.status(201).json({ message: 'Tạo phòng thành công', room });
+    return res.status(201).json({ 
+      message: 'Tạo phòng thành công', 
+      room,
+      room_type_info: roomType ? {
+        room_type_name: roomType.room_type_name,
+        max_quantity: roomType.quantity,
+        current_quantity: currentRoomCount + 1,
+        remaining_slots: roomType.quantity - (currentRoomCount + 1)
+      } : null
+    });
   } catch (error) {
     return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
   }
@@ -31,6 +59,28 @@ exports.updateRoom = async (req, res) => {
       const dup = await Room.findOne({ where: { hotel_id: checkHotelId, room_num: checkRoomNum } });
       if (dup && dup.room_id !== room.room_id) {
         return res.status(400).json({ message: 'Số phòng đã tồn tại trong khách sạn này' });
+      }
+    }
+
+    // Kiểm tra quantity khi thay đổi room_type_id
+    if (room_type_id !== undefined && room_type_id !== room.room_type_id) {
+      const roomType = await RoomType.findByPk(room_type_id);
+      if (!roomType) {
+        return res.status(404).json({ message: 'Không tìm thấy loại phòng' });
+      }
+
+      // Đếm số phòng hiện tại của loại phòng mới (trừ phòng hiện tại)
+      const currentRoomCount = await Room.count({ 
+        where: { 
+          room_type_id,
+          room_id: { [Op.ne]: id } // Loại trừ phòng hiện tại
+        } 
+      });
+      
+      if (currentRoomCount >= roomType.quantity) {
+        return res.status(400).json({ 
+          message: `Loại phòng "${roomType.room_type_name}" chỉ được có tối đa ${roomType.quantity} phòng, hiện tại đã có ${currentRoomCount} phòng` 
+        });
       }
     }
 

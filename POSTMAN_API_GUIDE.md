@@ -251,11 +251,26 @@ Headers: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
   - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
   - Body (JSON hoặc form-data text):
     - `hotel_id`, `room_num`, `status` (`available|booked|cleaning`), `room_type_id`
+  - **Lưu ý:** Số phòng tạo không được vượt quá `quantity` của loại phòng
+  - **Response:**
+    ```json
+    {
+      "message": "Tạo phòng thành công",
+      "room": { ... },
+      "room_type_info": {
+        "room_type_name": "Deluxe",
+        "max_quantity": 2,
+        "current_quantity": 1,
+        "remaining_slots": 1
+      }
+    }
+    ```
 
 - Cập nhật phòng (Admin Only)
   - PUT `http://localhost:5000/api/rooms/:id`
   - Headers: `Authorization: Bearer ADMIN_TOKEN_HERE`
   - Body (JSON hoặc form-data text): các field cần cập nhật
+  - **Lưu ý:** Khi thay đổi `room_type_id`, hệ thống sẽ kiểm tra quantity của loại phòng mới
 
 - Xóa phòng (Admin Only)
   - DELETE `http://localhost:5000/api/rooms/:id`
@@ -342,12 +357,27 @@ Ghi chú:
   "price_per_night": 1200000
 }
 ```
+  - **Lưu ý:** Hệ thống sẽ tự động kiểm tra trùng lặp khoảng thời gian. Nếu có overlap sẽ trả về lỗi validation.
+  // Tạo giá 1: 01/11-10/11
+POST /api/room-prices
+{"room_type_id": 1, "start_date": "2025-11-01", "end_date": "2025-11-10", "price_per_night": 1000000}
+
+// Tạo giá 2: 05/11-15/11 (sẽ bị lỗi)
+POST /api/room-prices  
+{"room_type_id": 1, "start_date": "2025-11-05", "end_date": "2025-11-15", "price_per_night": 1500000}
+// Response: "Khoảng thời gian giá bị trùng lặp với bản ghi ID 1 (2025-11-01 - 2025-11-10)"
 
 - Cập nhật giá (Admin Only)
   - PUT `http://localhost:5000/api/room-prices/:id`
+  - **Lưu ý:** Cũng kiểm tra trùng lặp khi cập nhật.
 
 - Xóa giá (Admin Only)
   - DELETE `http://localhost:5000/api/room-prices/:id`
+
+**Validation Rules:**
+- Không được có 2 khoảng giá trùng lặp cho cùng 1 loại phòng
+- Ví dụ: Nếu đã có giá từ 01/11-10/11, không thể tạo giá từ 05/11-15/11
+- Lỗi sẽ trả về: `"Khoảng thời gian giá bị trùng lặp với bản ghi ID X (start_date - end_date)"`
 
 ### 4.9. Dịch vụ (Services) — NHIỀU ẢNH
 
@@ -1049,13 +1079,19 @@ INSERT INTO booking_services (
 
 ### 9.1. LUỒNG 1: ĐẶT PHÒNG TRỰC TUYẾN (ONLINE)
 
+**Luồng hoạt động mới:**
+1. **Khách đặt phòng:** Chọn loại phòng (room_type_id) - không phải phòng cụ thể
+2. **Thanh toán thành công:** Hệ thống tự động gán phòng cụ thể từ loại phòng đã đặt
+3. **Check-in:** Lễ tân sử dụng booking_code để xác nhận với phòng đã được gán sẵn
+4. **Check-out:** Lễ tân sử dụng booking_code để hoàn tất quá trình
+
 #### 9.1.1. Giữ chỗ tạm thời (Redis)
 - **POST** `http://localhost:5000/api/bookings/temp-booking`
 - **Headers:** `Authorization: Bearer USER_TOKEN`
 - **Body:**
   ```json
   {
-    "room_id": 1,
+    "room_type_id": 1,
     "check_in_date": "2024-01-15",
     "check_out_date": "2024-01-17",
     "num_person": 2
@@ -1069,13 +1105,14 @@ INSERT INTO booking_services (
     "expires_in": 1800,
     "booking_data": {
       "user_id": 2,
-      "room_id": 1,
+      "room_type_id": 1,
       "check_in_date": "2024-01-15",
       "check_out_date": "2024-01-17",
       "num_person": 2,
       "room_price": 500000,
       "total_price": 1000000,
-      "nights": 2
+      "nights": 2,
+      "room_type_name": "Deluxe"
     },
     "statusCode": 200
   }
@@ -1130,7 +1167,7 @@ INSERT INTO booking_services (
     "payment_url": "https://pay.payos.vn/web/...",
     "qr_code": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
     "order_code": 1705312222001,
-    "booking_code": "BK1JQ2K3L4M5",
+    "booking_code": "A1B2C3",
     "amount": 1260000,
     "expires_in": 1800,
     "statusCode": 200
@@ -1159,7 +1196,7 @@ INSERT INTO booking_services (
   ```json
   {
     "user_id": 2,
-    "room_id": 1,
+    "room_type_id": 1,
     "check_in_date": "2024-01-15",
     "check_out_date": "2024-01-17",
     "num_person": 2,
@@ -1179,13 +1216,14 @@ INSERT INTO booking_services (
     "message": "Tạo booking thành công",
     "booking": {
       "booking_id": 1,
-      "booking_code": "BK1JQ2K3L4M5",
-      "room_type": "Deluxe",
+      "booking_code": "9AF1MBNS",
+      "room_type_name": "Deluxe",
       "check_in_date": "2024-01-15",
       "check_out_date": "2024-01-17",
       "total_price": 1000000,
       "booking_status": "confirmed",
-      "payment_status": "pending"
+      "payment_status": "paid",
+      "available_rooms_remaining": 1
     },
     "statusCode": 201
   }
@@ -1207,7 +1245,7 @@ INSERT INTO booking_services (
     "bookings": [
       {
         "booking_id": 1,
-        "booking_code": "BK1JQ2K3L4M5",
+        "booking_code": "A1B2C3",
         "check_in_date": "2024-01-15",
         "check_out_date": "2024-01-17",
         "booking_status": "confirmed",
@@ -1244,7 +1282,7 @@ INSERT INTO booking_services (
   {
     "booking": {
       "booking_id": 1,
-      "booking_code": "BK1JQ2K3L4M5",
+      "booking_code": "A1B2C3",
       "check_in_date": "2024-01-15",
       "check_out_date": "2024-01-17",
       "booking_status": "confirmed",
@@ -1280,21 +1318,105 @@ INSERT INTO booking_services (
   }
   ```
 
-#### 9.3.3. Check-in
-- **POST** `http://localhost:5000/api/bookings/1/check-in`
+#### 9.3.3. Tìm booking theo mã đặt phòng (cho check-in)
+- **GET** `http://localhost:5000/api/bookings/code/A1B2C3`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Response:**
   ```json
   {
-    "message": "Check-in thành công",
-    "check_in_time": "2024-01-15 14:30:00",
-    "statusCode": 200
+    "message": "Tìm thấy đặt phòng",
+    "booking": {
+      "booking_id": 1,
+      "booking_code": "A1B2C3",
+      "check_in_date": "2024-01-15",
+      "check_out_date": "2024-01-17",
+      "num_person": 2,
+      "booking_status": "confirmed",
+      "payment_status": "paid",
+      "total_price": 1000000,
+      "user": {
+        "user_id": 2,
+        "full_name": "Nguyễn Văn A",
+        "email": "nguyenvana@email.com",
+        "phone": "0123456789"
+      },
+      "room": {
+        "room_id": 1,
+        "room_num": 101,
+        "room_type": {
+          "room_type_id": 1,
+          "room_type_name": "Deluxe",
+          "capacity": 2
+        }
+      },
+      "services": []
+    }
   }
   ```
 
-#### 9.3.4. Check-out
-- **POST** `http://localhost:5000/api/bookings/1/check-out`
+#### 9.3.4. Lấy danh sách phòng trống (cho lễ tân)
+- **GET** `http://localhost:5000/api/bookings/available-rooms?room_type_id=1&check_in_date=2024-01-15&check_out_date=2024-01-17`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Response:**
+  ```json
+  {
+    "message": "Danh sách phòng trống",
+    "room_type_id": 1,
+    "room_type_name": "Deluxe",
+    "max_quantity": 2,
+    "check_in_date": "2024-01-15",
+    "check_out_date": "2024-01-17",
+    "total_rooms": 2,
+    "available_rooms": 2,
+    "rooms": [
+      {
+        "room_id": 5,
+        "room_num": "101",
+        "floor": 1,
+        "status": "available"
+      },
+      {
+        "room_id": 7,
+        "room_num": "102",
+        "floor": 1,
+        "status": "available"
+      }
+    ]
+  }
+  ```
+
+#### 9.3.5. Check-in (phòng đã được gán sẵn)
+- **POST** `http://localhost:5000/api/bookings/{booking_code}/check-in`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Yêu cầu:** 
+  - Booking phải ở trạng thái `confirmed`
+  - Phòng đã được gán sẵn khi thanh toán thành công
+- **Ví dụ:** `POST http://localhost:5000/api/bookings/9AF1MBNS/check-in`
+- **Response:**
+  ```json
+  {
+    "message": "Check-in thành công",
+    "booking_code": "9AF1MBNS",
+    "guest_name": "Nguyễn Văn A",
+    "room_type": "Deluxe",
+    "room_number": "101",
+    "check_in_time": "2024-01-15 14:30:00",
+    "room_assigned_at": "2024-01-15 10:30:00",
+    "statusCode": 200
+  }
+  ```
+- **Lưu ý:** 
+  - Phòng đã được gán tự động khi thanh toán thành công
+  - Lễ tân chỉ cần xác nhận check-in, không cần chỉ định phòng
+  - Sau check-in, booking chuyển sang trạng thái `checked_in`
+
+#### 9.3.6. Check-out
+- **POST** `http://localhost:5000/api/bookings/{booking_code}/check-out`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Yêu cầu:** 
+  - Booking phải ở trạng thái `checked_in` (đã check-in)
+  - Phải có `check_in_time` (đã check-in thực tế)
+- **Ví dụ:** `POST http://localhost:5000/api/bookings/9AF1MBNS/check-out`
 - **Response:**
   ```json
   {
@@ -1303,8 +1425,69 @@ INSERT INTO booking_services (
     "statusCode": 200
   }
   ```
+- **Lưu ý:** Sau check-out, booking chuyển sang trạng thái `checked_out`
 
-#### 9.3.5. Hủy booking
+#### 9.3.7. Luồng trạng thái booking
+```
+pending → confirmed → checked_in → checked_out
+   ↓         ↓           ↓
+cancelled  cancelled   (không thể hủy)
+```
+
+**Giải thích:**
+- **`pending`**: Đang chờ thanh toán
+- **`confirmed`**: Đã thanh toán, phòng đã được gán, chờ check-in
+- **`checked_in`**: Đã check-in, đang ở khách sạn
+- **`checked_out`**: Đã check-out, hoàn thành
+- **`cancelled`**: Đã hủy (có thể hủy ở `pending` hoặc `confirmed`)
+
+**Lưu ý quan trọng:**
+- Khi thanh toán thành công, hệ thống tự động gán phòng cụ thể từ loại phòng đã đặt
+- Khách đặt **loại phòng** (room_type), không phải phòng cụ thể
+- Lễ tân sử dụng `booking_code` để tìm và check-in/check-out
+
+#### 9.3.8. Luồng hoạt động chi tiết
+
+**1. Đặt phòng online:**
+```
+Khách chọn loại phòng → Tạo temp booking → Thanh toán → Webhook → Gán phòng cụ thể → Check-in
+```
+
+**2. Đặt phòng walk-in:**
+```
+Admin tạo booking → Chọn loại phòng → Thanh toán ngay → Gán phòng cụ thể → Check-in
+```
+
+**3. Cấu trúc database:**
+- `bookings.room_type_id` (NOT NULL) - Loại phòng khách đặt
+- `bookings.room_id` (NULL) - Phòng cụ thể (chỉ khi đã gán)
+- `bookings.room_assigned_at` (NULL) - Thời gian gán phòng
+
+**4. Trạng thái booking:**
+- `pending` → `confirmed` → `checked_in` → `checked_out`
+- Khi `confirmed`: Phòng đã được gán, sẵn sàng check-in
+- Khi `checked_in`: Khách đã nhận phòng
+- Khi `checked_out`: Hoàn tất quá trình
+
+#### 9.3.9. Tóm tắt thay đổi quan trọng
+
+**✅ Đã sửa:**
+1. **Mối quan hệ database:** Booking ↔ RoomType (chính), Booking ↔ Room (phụ)
+2. **API endpoints:** Sử dụng `booking_code` thay vì `id` cho check-in/check-out
+3. **Luồng đặt phòng:** Khách đặt loại phòng, hệ thống tự động gán phòng cụ thể
+4. **ENUM booking_status:** Thêm `checked_in` và `checked_out`
+5. **Database migration:** Thêm `room_type_id`, `room_assigned_at` vào bảng bookings
+
+**🔄 Luồng hoạt động mới:**
+- **Online:** Chọn loại phòng → Temp booking → Thanh toán → Webhook → Gán phòng → Check-in
+- **Walk-in:** Admin tạo booking → Chọn loại phòng → Thanh toán → Gán phòng → Check-in
+
+**📊 Cấu trúc database:**
+- `bookings.room_type_id` (NOT NULL) - Loại phòng khách đặt
+- `bookings.room_id` (NULL) - Phòng cụ thể (chỉ khi đã gán)
+- `bookings.room_assigned_at` (NULL) - Thời gian gán phòng
+
+#### 9.3.8. Hủy booking
 - **POST** `http://localhost:5000/api/bookings/1/cancel`
 - **Headers:** `Authorization: Bearer USER_TOKEN`
 - **Body:**
@@ -1841,12 +2024,12 @@ node test-create-promotions.js
 
 ### **Bước 1: Tạo booking tạm thời**
 ```bash
-POST http://localhost:5000/api/booking/temp
+POST http://localhost:5000/api/bookings/temp-booking
 Authorization: Bearer <customer_token>
 Content-Type: application/json
 
 {
-  "room_id": 1,
+  "room_type_id": 1,
   "check_in_date": "2025-10-21",
   "check_out_date": "2025-10-22", 
   "num_person": 2
@@ -1861,23 +2044,21 @@ Content-Type: application/json
   "expires_in": 1800,
   "booking_data": {
     "user_id": 2,
-    "room_id": 1,
+    "room_type_id": 1,
     "check_in_date": "2025-10-21",
     "check_out_date": "2025-10-22",
     "num_person": 2,
     "room_price": 500,
     "total_price": 500,
     "nights": 1,
-    "room_type_id": 1,
-    "room_number": "101",
-    "room_type_name": "Deluxe normal"
+    "room_type_name": "Deluxe"
   }
 }
 ```
 
 ### **Bước 2: Thêm dịch vụ (tùy chọn)**
 ```bash
-POST http://localhost:5000/api/booking/temp/add-service
+POST http://localhost:5000/api/bookings/temp-booking/add-service
 Authorization: Bearer <customer_token>
 Content-Type: application/json
 
@@ -1891,7 +2072,7 @@ Content-Type: application/json
 
 ### **Bước 3: Tạo link thanh toán PayOS**
 ```bash
-POST http://localhost:5000/api/booking/payment/create-link
+POST http://localhost:5000/api/bookings/create-payment-link
 Authorization: Bearer <customer_token>
 Content-Type: application/json
 

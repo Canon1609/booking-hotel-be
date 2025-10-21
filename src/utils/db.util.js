@@ -81,11 +81,57 @@ async function ensurePaymentEnums() {
   }
 }
 
+// Cập nhật booking_status ENUM với checked_in và checked_out
+async function ensureBookingStatusEnum() {
+  try {
+    await sequelize.query(`
+      ALTER TABLE \`bookings\` 
+      MODIFY COLUMN \`booking_status\` 
+      ENUM('pending', 'confirmed', 'cancelled', 'checked_in', 'checked_out') 
+      NOT NULL DEFAULT 'pending'
+    `);
+    console.log('✅ Updated booking_status ENUM to include checked_in and checked_out');
+  } catch (error) {
+    console.error('Error updating booking_status ENUM:', error);
+  }
+}
+
+// Thêm room_type_id vào bảng bookings và cập nhật room_id thành nullable
+async function ensureBookingRoomType() {
+  try {
+    // Kiểm tra xem room_type_id đã tồn tại chưa
+    const roomTypeExists = await columnExists('bookings', 'room_type_id');
+    
+    if (!roomTypeExists) {
+      // Thêm cột room_type_id
+      await sequelize.query(`
+        ALTER TABLE \`bookings\` 
+        ADD COLUMN \`room_type_id\` INT NOT NULL AFTER \`user_id\`,
+        ADD FOREIGN KEY (\`room_type_id\`) REFERENCES \`room_types\`(\`room_type_id\`)
+      `);
+      console.log('✅ Added room_type_id column to bookings table');
+    }
+    
+    // Cập nhật room_id thành nullable
+    await sequelize.query(`
+      ALTER TABLE \`bookings\` 
+      MODIFY COLUMN \`room_id\` INT NULL,
+      ADD COLUMN \`room_assigned_at\` DATETIME NULL COMMENT 'Thời gian lễ tân chỉ định phòng'
+    `);
+    console.log('✅ Updated room_id to nullable and added room_assigned_at');
+    
+  } catch (error) {
+    console.error('Error updating booking room type structure:', error);
+  }
+}
+
 module.exports = {
   ensureImagesColumns,
   ensureServiceFields,
   ensureUniqueRoomNumberPerHotel,
-  ensurePaymentEnums
+  ensurePaymentEnums,
+  ensureBookingStatusEnum,
+  ensureBookingRoomType
 };
 
 // Add updated_at to room_prices if missing

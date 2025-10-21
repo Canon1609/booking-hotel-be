@@ -14,10 +14,16 @@ const Booking = sequelize.define('Booking', {
     allowNull: false,
     references: { model: 'users', key: 'user_id' }
   },
-  room_id: {
+  room_type_id: {
     type: DataTypes.INTEGER,
     allowNull: false,
-    references: { model: 'rooms', key: 'room_id' }
+    references: { model: 'room_types', key: 'room_type_id' }
+  },
+  room_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: { model: 'rooms', key: 'room_id' },
+    comment: 'Phòng cụ thể được lễ tân chỉ định khi check-in'
   },
   check_in_date: {
     type: DataTypes.DATEONLY,
@@ -37,7 +43,7 @@ const Booking = sequelize.define('Booking', {
     allowNull: false
   },
   booking_status: {
-    type: DataTypes.ENUM('pending', 'confirmed', 'cancelled', 'completed'),
+    type: DataTypes.ENUM('pending', 'confirmed', 'cancelled', 'checked_in', 'checked_out'),
     allowNull: false,
     defaultValue: 'pending'
   },

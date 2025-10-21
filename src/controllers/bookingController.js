@@ -12,28 +12,29 @@ const { sendInvoiceEmail } = require('../utils/emailBooking.util');
 // 1.1. Giữ chỗ tạm thời (Redis)
 exports.createTempBooking = async (req, res) => {
   try {
-    const { room_id, check_in_date, check_out_date, num_person = 1 } = req.body;
+    const { room_type_id, check_in_date, check_out_date, num_person = 1 } = req.body;
     const user_id = req.user.id;
 
     // Kiểm tra thông tin đầu vào
-    if (!room_id || !check_in_date || !check_out_date) {
+    if (!room_type_id || !check_in_date || !check_out_date) {
       return res.status(400).json({ 
-        message: 'Vui lòng nhập đầy đủ thông tin phòng và ngày' 
+        message: 'Vui lòng nhập đầy đủ thông tin loại phòng và ngày' 
       });
     }
 
-    // Kiểm tra phòng có tồn tại không
-    const room = await Room.findOne({ 
-      where: { room_id },
-      include: [{ 
-        model: RoomType, 
-        as: 'room_type',
-        include: [{ model: RoomPrice, as: 'prices' }]
-      }]
+    // Kiểm tra loại phòng có tồn tại không
+    const roomType = await RoomType.findOne({ 
+      where: { room_type_id },
+      include: [{ model: RoomPrice, as: 'prices' }]
     });
 
-    if (!room) {
-      return res.status(404).json({ message: 'Không tìm thấy phòng' });
+    if (!roomType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại phòng' });
+    }
+
+    // Kiểm tra số lượng phòng tối đa của loại phòng
+    if (roomType.quantity <= 0) {
+      return res.status(400).json({ message: 'Loại phòng này không có phòng nào' });
     }
 
     // Kiểm tra tính khả dụng của phòng
@@ -48,28 +49,44 @@ exports.createTempBooking = async (req, res) => {
       return res.status(400).json({ message: 'Ngày check-out phải sau ngày check-in' });
     }
 
-    // Kiểm tra phòng có bị đặt trong khoảng thời gian này không
-    const existingBooking = await Booking.findOne({
-      where: {
-        room_id,
-        booking_status: { [Op.in]: ['confirmed', 'completed'] },
-        [Op.or]: [
-          {
-            check_in_date: { [Op.lte]: checkOut.format('YYYY-MM-DD') },
-            check_out_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
-          }
-        ]
-      }
+    // Kiểm tra số phòng thực tế có vượt quá quantity không
+    const totalRoomsOfType = await Room.count({ where: { room_type_id } });
+    if (totalRoomsOfType > roomType.quantity) {
+      return res.status(400).json({ 
+        message: `Loại phòng này chỉ được có tối đa ${roomType.quantity} phòng, nhưng hiện tại có ${totalRoomsOfType} phòng` 
+      });
+    }
+
+    // Kiểm tra loại phòng có còn trống không trong khoảng thời gian này
+    const availableRooms = await Room.findAll({
+      where: { room_type_id },
+      include: [{
+        model: Booking,
+        as: 'bookings',
+        where: {
+          booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
+          [Op.or]: [
+            {
+              check_in_date: { [Op.lte]: checkOut.format('YYYY-MM-DD') },
+              check_out_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
+            }
+          ]
+        },
+        required: false
+      }]
     });
 
-    if (existingBooking) {
-      return res.status(400).json({ message: 'Phòng đã được đặt trong khoảng thời gian này' });
+    // Lọc ra các phòng chưa được đặt
+    const freeRooms = availableRooms.filter(room => !room.bookings || room.bookings.length === 0);
+
+    if (freeRooms.length === 0) {
+      return res.status(400).json({ message: 'Loại phòng này đã hết phòng trống trong khoảng thời gian này' });
     }
 
     // Lấy giá phòng
     const roomPrice = await RoomPrice.findOne({
       where: {
-        room_type_id: room.room_type_id,
+        room_type_id,
         start_date: { [Op.lte]: checkIn.format('YYYY-MM-DD') },
         end_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
       },
@@ -87,22 +104,21 @@ exports.createTempBooking = async (req, res) => {
     // Tạo booking tạm thời
     const tempBookingData = {
       user_id,
-      room_id,
+      room_type_id,
       check_in_date: checkIn.format('YYYY-MM-DD'),
       check_out_date: checkOut.format('YYYY-MM-DD'),
       num_person,
       room_price: roomPrice.price_per_night,
       total_price: roomTotalPrice,
       nights,
-      room_type_id: room.room_type_id,
-      room_number: room.room_number,
-      room_type_name: room.room_type?.room_type_name || 'Unknown'
+      room_type_name: roomType.room_type_name,
+      available_rooms: freeRooms.length
     };
 
     // Tạo key Redis
     const tempKey = redisService.generateTempBookingKey(
       user_id, 
-      room_id, 
+      room_type_id, 
       checkIn.format('YYYY-MM-DD'), 
       checkOut.format('YYYY-MM-DD')
     );
@@ -349,10 +365,64 @@ exports.handlePaymentWebhook = async (req, res) => {
         existingBooking = await Booking.findOne({ where: { booking_code: bookingCode } });
       }
 
-      // Tạo booking vĩnh viễn
+      // Tự động gán phòng cụ thể từ loại phòng
+      const assignedRoom = await Room.findOne({
+        where: { 
+          room_type_id: tempBooking.room_type_id,
+          status: 'available'
+        },
+        include: [{
+          model: Booking,
+          as: 'bookings',
+          where: {
+            booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
+            [Op.or]: [
+              {
+                check_in_date: { [Op.lte]: tempBooking.check_out_date },
+                check_out_date: { [Op.gte]: tempBooking.check_in_date }
+              }
+            ]
+          },
+          required: false
+        }]
+      });
+
+      // Lọc ra phòng chưa được đặt
+      const availableRooms = await Room.findAll({
+        where: { 
+          room_type_id: tempBooking.room_type_id,
+          status: 'available'
+        },
+        include: [{
+          model: Booking,
+          as: 'bookings',
+          where: {
+            booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
+            [Op.or]: [
+              {
+                check_in_date: { [Op.lte]: tempBooking.check_out_date },
+                check_out_date: { [Op.gte]: tempBooking.check_in_date }
+              }
+            ]
+          },
+          required: false
+        }]
+      });
+
+      const freeRooms = availableRooms.filter(room => !room.bookings || room.bookings.length === 0);
+      
+      if (freeRooms.length === 0) {
+        return res.status(400).json({ message: 'Loại phòng này đã hết phòng trống' });
+      }
+
+      // Chọn phòng đầu tiên có sẵn
+      const selectedRoom = freeRooms[0];
+
+      // Tạo booking vĩnh viễn với phòng đã được gán
       const booking = await Booking.create({
         user_id: tempBooking.user_id,
-        room_id: tempBooking.room_id,
+        room_type_id: tempBooking.room_type_id,
+        room_id: selectedRoom.room_id, // Gán phòng cụ thể
         check_in_date: tempBooking.check_in_date,
         check_out_date: tempBooking.check_out_date,
         num_person: tempBooking.num_person,
@@ -363,7 +433,8 @@ exports.handlePaymentWebhook = async (req, res) => {
         booking_type: 'online',
         booking_code: bookingCode,
         payos_order_code: tempBooking.payos_order_code,
-        promotion_id: tempBooking.promotion_id
+        promotion_id: tempBooking.promotion_id,
+        room_assigned_at: moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss')
       });
 
       // Tạo booking services
@@ -517,7 +588,7 @@ exports.createWalkInBooking = async (req, res) => {
   try {
     const { 
       user_id, 
-      room_id, 
+      room_type_id, 
       check_in_date, 
       check_out_date, 
       num_person = 1,
@@ -526,24 +597,25 @@ exports.createWalkInBooking = async (req, res) => {
     } = req.body;
 
     // Kiểm tra thông tin đầu vào
-    if (!user_id || !room_id || !check_in_date || !check_out_date) {
+    if (!user_id || !room_type_id || !check_in_date || !check_out_date) {
       return res.status(400).json({ 
-        message: 'Vui lòng nhập đầy đủ thông tin' 
+        message: 'Vui lòng nhập đầy đủ thông tin loại phòng và ngày' 
       });
     }
 
-    // Kiểm tra phòng có tồn tại không
-    const room = await Room.findOne({ 
-      where: { room_id },
-      include: [{ 
-        model: RoomType, 
-        as: 'room_type',
-        include: [{ model: RoomPrice, as: 'prices' }]
-      }]
+    // Kiểm tra loại phòng có tồn tại không
+    const roomType = await RoomType.findOne({ 
+      where: { room_type_id },
+      include: [{ model: RoomPrice, as: 'prices' }]
     });
 
-    if (!room) {
-      return res.status(404).json({ message: 'Không tìm thấy phòng' });
+    if (!roomType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại phòng' });
+    }
+
+    // Kiểm tra số lượng phòng tối đa của loại phòng
+    if (roomType.quantity <= 0) {
+      return res.status(400).json({ message: 'Loại phòng này không có phòng nào' });
     }
 
     // Kiểm tra tính khả dụng của phòng
@@ -554,28 +626,44 @@ exports.createWalkInBooking = async (req, res) => {
       return res.status(400).json({ message: 'Ngày check-out phải sau ngày check-in' });
     }
 
-    // Kiểm tra phòng có bị đặt trong khoảng thời gian này không
-    const existingBooking = await Booking.findOne({
-      where: {
-        room_id,
-        booking_status: { [Op.in]: ['confirmed', 'completed'] },
-        [Op.or]: [
-          {
-            check_in_date: { [Op.lte]: checkOut.format('YYYY-MM-DD') },
-            check_out_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
-          }
-        ]
-      }
+    // Kiểm tra số phòng thực tế có vượt quá quantity không
+    const totalRoomsOfType = await Room.count({ where: { room_type_id } });
+    if (totalRoomsOfType > roomType.quantity) {
+      return res.status(400).json({ 
+        message: `Loại phòng này chỉ được có tối đa ${roomType.quantity} phòng, nhưng hiện tại có ${totalRoomsOfType} phòng` 
+      });
+    }
+
+    // Kiểm tra loại phòng có còn trống không trong khoảng thời gian này
+    const availableRooms = await Room.findAll({
+      where: { room_type_id },
+      include: [{
+        model: Booking,
+        as: 'bookings',
+        where: {
+          booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
+          [Op.or]: [
+            {
+              check_in_date: { [Op.lte]: checkOut.format('YYYY-MM-DD') },
+              check_out_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
+            }
+          ]
+        },
+        required: false
+      }]
     });
 
-    if (existingBooking) {
-      return res.status(400).json({ message: 'Phòng đã được đặt trong khoảng thời gian này' });
+    // Lọc ra các phòng chưa được đặt
+    const freeRooms = availableRooms.filter(room => !room.bookings || room.bookings.length === 0);
+
+    if (freeRooms.length === 0) {
+      return res.status(400).json({ message: 'Loại phòng này đã hết phòng trống trong khoảng thời gian này' });
     }
 
     // Lấy giá phòng
     const roomPrice = await RoomPrice.findOne({
       where: {
-        room_type_id: room.room_type_id,
+        room_type_id,
         start_date: { [Op.lte]: checkIn.format('YYYY-MM-DD') },
         end_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
       },
@@ -596,14 +684,14 @@ exports.createWalkInBooking = async (req, res) => {
     // Tạo booking
     const booking = await Booking.create({
       user_id,
-      room_id,
+      room_type_id,
       check_in_date: checkIn.format('YYYY-MM-DD'),
       check_out_date: checkOut.format('YYYY-MM-DD'),
       num_person,
       total_price: roomTotalPrice,
       final_price: roomTotalPrice,
       booking_status: 'confirmed',
-      payment_status: 'pending',
+      payment_status: 'paid', // Walk-in đã thanh toán tiền mặt
       booking_type: 'walkin',
       booking_code: bookingCode,
       note
@@ -648,12 +736,13 @@ exports.createWalkInBooking = async (req, res) => {
       booking: {
         booking_id: booking.booking_id,
         booking_code: booking.booking_code,
-        room_type: room.room_type?.room_type_name,
+        room_type: roomType.room_type_name,
         check_in_date: booking.check_in_date,
         check_out_date: booking.check_out_date,
         total_price: booking.final_price,
         booking_status: booking.booking_status,
-        payment_status: booking.payment_status
+        payment_status: booking.payment_status,
+        available_rooms_remaining: freeRooms.length - 1 // Trừ đi 1 phòng vừa đặt
       }
     });
 
@@ -730,12 +819,76 @@ exports.getBookingById = async (req, res) => {
   }
 };
 
-// Check-in
+// Tìm booking theo mã đặt phòng (cho check-in)
+exports.findBookingByCode = async (req, res) => {
+  try {
+    const { booking_code } = req.params;
+
+    const booking = await Booking.findOne({
+      where: { booking_code },
+      include: [
+        { model: User, as: 'user', attributes: ['user_id', 'full_name', 'email', 'phone'] },
+        { 
+          model: Room, 
+          as: 'room', 
+          attributes: ['room_id', 'room_num'],
+          include: [{ 
+            model: RoomType, 
+            as: 'room_type', 
+            attributes: ['room_type_id', 'room_type_name', 'capacity'] 
+          }]
+        },
+        { model: BookingService, as: 'booking_services', include: [{ model: Service, as: 'service' }] }
+      ]
+    });
+
+    if (!booking) {
+      return res.status(404).json({ message: 'Không tìm thấy đặt phòng với mã này' });
+    }
+
+    return res.status(200).json({
+      message: 'Tìm thấy đặt phòng',
+      booking: {
+        booking_id: booking.booking_id,
+        booking_code: booking.booking_code,
+        check_in_date: booking.check_in_date,
+        check_out_date: booking.check_out_date,
+        num_person: booking.num_person,
+        booking_status: booking.booking_status,
+        payment_status: booking.payment_status,
+        total_price: booking.total_price,
+        check_in_time: booking.check_in_time,
+        check_out_time: booking.check_out_time,
+        user: booking.user,
+        room: {
+          room_id: booking.room.room_id,
+          room_num: booking.room.room_num,
+          room_type: booking.room.room_type
+        },
+        services: booking.booking_services || []
+      }
+    });
+
+  } catch (error) {
+    console.error('Error finding booking by code:', error);
+    return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+  }
+};
+
+// Check-in (phòng đã được gán sẵn)
 exports.checkIn = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { booking_code } = req.params;
 
-    const booking = await Booking.findByPk(id);
+    const booking = await Booking.findOne({
+      where: { booking_code },
+      include: [
+        { model: User, as: 'user', attributes: ['full_name', 'email'] },
+        { model: RoomType, as: 'room_type', attributes: ['room_type_name'] },
+        { model: Room, as: 'room', attributes: ['room_id', 'room_num'] }
+      ]
+    });
+    
     if (!booking) {
       return res.status(404).json({ message: 'Không tìm thấy booking' });
     }
@@ -744,12 +897,29 @@ exports.checkIn = async (req, res) => {
       return res.status(400).json({ message: 'Booking không ở trạng thái confirmed' });
     }
 
+    if (booking.check_in_time) {
+      return res.status(400).json({ message: 'Khách đã check-in rồi' });
+    }
+
+    // Kiểm tra phòng đã được gán chưa
+    if (!booking.room_id) {
+      return res.status(400).json({ message: 'Phòng chưa được gán cho booking này' });
+    }
+
+    // Cập nhật thời gian check-in và trạng thái
     booking.check_in_time = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
+    booking.booking_status = 'checked_in';
     await booking.save();
 
     return res.status(200).json({ 
       message: 'Check-in thành công',
-      check_in_time: booking.check_in_time
+      booking_code: booking.booking_code,
+      guest_name: booking.user.full_name,
+      room_type: booking.room_type.room_type_name,
+      room_number: booking.room.room_num,
+      check_in_time: booking.check_in_time,
+      room_assigned_at: booking.room_assigned_at,
+      statusCode: 200
     });
 
   } catch (error) {
@@ -758,22 +928,106 @@ exports.checkIn = async (req, res) => {
   }
 };
 
+// Lấy danh sách phòng trống của một loại phòng (cho lễ tân)
+exports.getAvailableRoomsForType = async (req, res) => {
+  try {
+    const { room_type_id, check_in_date, check_out_date } = req.query;
+
+    if (!room_type_id || !check_in_date || !check_out_date) {
+      return res.status(400).json({ 
+        message: 'Vui lòng nhập đầy đủ thông tin loại phòng và ngày' 
+      });
+    }
+
+    const checkIn = moment(check_in_date).tz('Asia/Ho_Chi_Minh');
+    const checkOut = moment(check_out_date).tz('Asia/Ho_Chi_Minh');
+
+    // Kiểm tra loại phòng có tồn tại không
+    const roomType = await RoomType.findByPk(room_type_id);
+    if (!roomType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại phòng' });
+    }
+
+    // Lấy tất cả phòng của loại phòng này
+    const allRooms = await Room.findAll({
+      where: { room_type_id },
+      include: [{
+        model: Booking,
+        as: 'bookings',
+        where: {
+          booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
+          [Op.or]: [
+            {
+              check_in_date: { [Op.lte]: checkOut.format('YYYY-MM-DD') },
+              check_out_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
+            }
+          ]
+        },
+        required: false
+      }]
+    });
+
+    // Lọc ra các phòng trống
+    const availableRooms = allRooms.filter(room => !room.bookings || room.bookings.length === 0);
+
+    return res.status(200).json({
+      message: 'Danh sách phòng trống',
+      room_type_id,
+      room_type_name: roomType.room_type_name,
+      max_quantity: roomType.quantity,
+      check_in_date: checkIn.format('YYYY-MM-DD'),
+      check_out_date: checkOut.format('YYYY-MM-DD'),
+      total_rooms: allRooms.length,
+      available_rooms: availableRooms.length,
+      rooms: availableRooms.map(room => ({
+        room_id: room.room_id,
+        room_num: room.room_num,
+        floor: room.floor,
+        status: 'available'
+      }))
+    });
+
+  } catch (error) {
+    console.error('Error getting available rooms:', error);
+    return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+  }
+};
+
 // Check-out
 exports.checkOut = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { booking_code } = req.params;
 
-    const booking = await Booking.findByPk(id);
+    const booking = await Booking.findOne({
+      where: { booking_code },
+      include: [
+        { model: User, as: 'user', attributes: ['full_name', 'email'] },
+        { model: RoomType, as: 'room_type', attributes: ['room_type_name'] },
+        { model: Room, as: 'room', attributes: ['room_id', 'room_num'] }
+      ]
+    });
     if (!booking) {
       return res.status(404).json({ message: 'Không tìm thấy booking' });
     }
 
-    if (booking.booking_status !== 'confirmed') {
-      return res.status(400).json({ message: 'Booking không ở trạng thái confirmed' });
+    if (booking.booking_status !== 'checked_in') {
+      return res.status(400).json({ 
+        message: 'Booking phải ở trạng thái checked_in (đã check-in)',
+        current_status: booking.booking_status,
+        required_status: 'checked_in'
+      });
+    }
+
+    if (!booking.check_in_time) {
+      return res.status(400).json({ message: 'Khách chưa check-in, không thể check-out' });
+    }
+
+    if (booking.check_out_time) {
+      return res.status(400).json({ message: 'Khách đã check-out rồi' });
     }
 
     booking.check_out_time = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
-    booking.booking_status = 'completed';
+    booking.booking_status = 'checked_out';
     await booking.save();
 
     return res.status(200).json({ 

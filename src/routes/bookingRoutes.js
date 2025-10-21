@@ -30,11 +30,17 @@ router.get('/', protect, adminOnly, bookingController.getBookings);
 // Lấy booking theo ID - User (chỉ booking của mình) hoặc Admin
 router.get('/:id', protect, bookingController.getBookingById);
 
+// Tìm booking theo mã đặt phòng (cho check-in) - Admin/Staff
+router.get('/code/:booking_code', protect, adminOnly, bookingController.findBookingByCode);
+
+// Lấy danh sách phòng trống của một loại phòng - Admin/Staff
+router.get('/available-rooms', protect, adminOnly, bookingController.getAvailableRoomsForType);
+
 // Check-in - Admin/Staff
-router.post('/:id/check-in', protect, adminOnly, bookingController.checkIn);
+router.post('/:booking_code/check-in', protect, adminOnly, bookingController.checkIn);
 
 // Check-out - Admin/Staff
-router.post('/:id/check-out', protect, adminOnly, bookingController.checkOut);
+router.post('/:booking_code/check-out', protect, adminOnly, bookingController.checkOut);
 
 // Hủy booking - User (chỉ booking của mình) hoặc Admin
 router.post('/:id/cancel', protect, bookingController.cancelBooking);
