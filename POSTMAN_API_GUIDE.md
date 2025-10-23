@@ -581,6 +581,8 @@ Tạo Loại phòng (Room Type) — BẮT BUỘC trước khi tạo Phòng
 ```json
 {
   "promotion_code": "SUMMER2024",
+  "name": "Khuyến mãi mùa hè 2024",
+  "description": "Giảm giá 20% cho tất cả đặt phòng trong mùa hè",
   "discount_type": "percentage",
   "amount": 20,
   "start_date": "2024-06-01 00:00:00",
@@ -593,6 +595,8 @@ Tạo Loại phòng (Room Type) — BẮT BUỘC trước khi tạo Phòng
 ```json
 {
   "promotion_code": "WELCOME10",
+  "name": "Chào mừng khách mới",
+  "description": "Giảm 100,000 VNĐ cho khách hàng mới",
   "discount_type": "fixed",
   "amount": 100000,
   "start_date": "2024-01-01 00:00:00",

@@ -14,6 +14,14 @@ const Promotion = sequelize.define('Promotion', {
     allowNull: false,
     unique: true
   },
+  name: {
+    type: DataTypes.STRING(255),
+    allowNull: false
+  },
+  description: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
   discount_type: {
     type: DataTypes.ENUM('fixed', 'percentage'),
     allowNull: false

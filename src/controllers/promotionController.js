@@ -5,7 +5,7 @@ const moment = require('moment-timezone');
 // Tạo promotion mới
 exports.createPromotion = async (req, res) => {
   try {
-    const { promotion_code, discount_type, amount, start_date, end_date, quantity = 0 } = req.body;
+    const { promotion_code, name, description, discount_type, amount, start_date, end_date, quantity = 0 } = req.body;
 
     // Kiểm tra promotion code đã tồn tại
     const existingPromotion = await Promotion.findOne({ where: { promotion_code } });
@@ -32,6 +32,8 @@ exports.createPromotion = async (req, res) => {
 
     const promotion = await Promotion.create({
       promotion_code,
+      name,
+      description,
       discount_type,
       amount,
       start_date: startDate.format('YYYY-MM-DD HH:mm:ss'),
@@ -49,7 +51,7 @@ exports.createPromotion = async (req, res) => {
 exports.updatePromotion = async (req, res) => {
   try {
     const { id } = req.params;
-    const { promotion_code, discount_type, amount, start_date, end_date, quantity, status } = req.body;
+    const { promotion_code, name, description, discount_type, amount, start_date, end_date, quantity, status } = req.body;
 
     const promotion = await Promotion.findOne({ where: { promotion_id: id } });
     if (!promotion) {
@@ -75,6 +77,8 @@ exports.updatePromotion = async (req, res) => {
 
     // Cập nhật fields
     if (promotion_code) promotion.promotion_code = promotion_code;
+    if (name) promotion.name = name;
+    if (description !== undefined) promotion.description = description;
     if (discount_type) promotion.discount_type = discount_type;
     if (amount !== undefined) promotion.amount = amount;
     if (start_date) promotion.start_date = moment(start_date).tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
@@ -117,7 +121,8 @@ exports.getPromotions = async (req, res) => {
     if (status) where.status = status;
     if (search) {
       where[Op.or] = [
-        { promotion_code: { [Op.like]: `%${search}%` } }
+        { promotion_code: { [Op.like]: `%${search}%` } },
+        { name: { [Op.like]: `%${search}%` } }
       ];
     }
 
@@ -194,6 +199,8 @@ exports.validatePromotionCode = async (req, res) => {
       promotion: {
         promotion_id: promotion.promotion_id,
         promotion_code: promotion.promotion_code,
+        name: promotion.name,
+        description: promotion.description,
         discount_type: promotion.discount_type,
         amount: promotion.amount,
         start_date: promotion.start_date,
@@ -259,6 +266,8 @@ exports.applyPromotionCode = async (req, res) => {
       promotion: {
         promotion_id: promotion.promotion_id,
         promotion_code: promotion.promotion_code,
+        name: promotion.name,
+        description: promotion.description,
         discount_type: promotion.discount_type,
         discount_amount,
         final_amount
