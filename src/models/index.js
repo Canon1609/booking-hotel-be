@@ -58,6 +58,14 @@ BookingService.belongsTo(Booking, { foreignKey: 'booking_id', as: 'booking' });
 Service.hasMany(BookingService, { foreignKey: 'service_id', as: 'booking_services' });
 BookingService.belongsTo(Service, { foreignKey: 'service_id', as: 'service' });
 
+// User ↔ Post
+User.hasMany(Post, { foreignKey: 'user_id', as: 'posts' });
+Post.belongsTo(User, { foreignKey: 'user_id', as: 'author' });
+
+// Category ↔ Post
+Category.hasMany(Post, { foreignKey: 'category_id', as: 'posts' });
+Post.belongsTo(Category, { foreignKey: 'category_id', as: 'category' });
+
 module.exports = {
   sequelize,
   User,
