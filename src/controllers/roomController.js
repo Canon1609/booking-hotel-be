@@ -13,15 +13,18 @@ exports.createRoom = async (req, res) => {
       return res.status(400).json({ message: 'Số phòng đã tồn tại trong khách sạn này' });
     }
 
+    let roomType = null;
+    let currentRoomCount = 0;
+
     // Kiểm tra quantity của loại phòng
     if (room_type_id) {
-      const roomType = await RoomType.findByPk(room_type_id);
+      roomType = await RoomType.findByPk(room_type_id);
       if (!roomType) {
         return res.status(404).json({ message: 'Không tìm thấy loại phòng' });
       }
 
       // Đếm số phòng hiện tại của loại phòng này
-      const currentRoomCount = await Room.count({ where: { room_type_id } });
+      currentRoomCount = await Room.count({ where: { room_type_id } });
       
       if (currentRoomCount >= roomType.quantity) {
         return res.status(400).json({ 
