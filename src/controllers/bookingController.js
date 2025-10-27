@@ -437,6 +437,12 @@ exports.handlePaymentWebhook = async (req, res) => {
         room_assigned_at: moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss')
       });
 
+      // Cập nhật trạng thái phòng thành 'booked'
+      await Room.update(
+        { status: 'booked' },
+        { where: { room_id: selectedRoom.room_id } }
+      );
+
       // Tạo booking services
       if (tempBooking.services && tempBooking.services.length > 0) {
         for (const service of tempBooking.services) {
@@ -875,16 +881,17 @@ exports.findBookingByCode = async (req, res) => {
   }
 };
 
-// Check-in (phòng đã được gán sẵn)
+// Check-in (phòng đã được gán sẵn hoặc có thể gán mới)
 exports.checkIn = async (req, res) => {
   try {
     const { booking_code } = req.params;
+    const { room_id } = req.body; // Optional: để gán phòng mới cho walk-in booking
 
     const booking = await Booking.findOne({
       where: { booking_code },
       include: [
         { model: User, as: 'user', attributes: ['full_name', 'email'] },
-        { model: RoomType, as: 'room_type', attributes: ['room_type_name'] },
+        { model: RoomType, as: 'room_type', attributes: ['room_type_name', 'room_type_id'] },
         { model: Room, as: 'room', attributes: ['room_id', 'room_num'] }
       ]
     });
@@ -901,15 +908,65 @@ exports.checkIn = async (req, res) => {
       return res.status(400).json({ message: 'Khách đã check-in rồi' });
     }
 
-    // Kiểm tra phòng đã được gán chưa
+    // Nếu booking chưa có phòng (walk-in booking), cần gán phòng mới
     if (!booking.room_id) {
-      return res.status(400).json({ message: 'Phòng chưa được gán cho booking này' });
+      if (!room_id) {
+        return res.status(400).json({ 
+          message: 'Phòng chưa được gán. Vui lòng cung cấp room_id để gán phòng',
+          room_type_id: booking.room_type_id,
+          available_rooms_endpoint: `/api/bookings/available-rooms?room_type_id=${booking.room_type_id}&check_in_date=${booking.check_in_date}&check_out_date=${booking.check_out_date}`
+        });
+      }
+
+      // Kiểm tra phòng có tồn tại và hợp lệ không
+      const selectedRoom = await Room.findOne({
+        where: { room_id, room_type_id: booking.room_type_id },
+        include: [{
+          model: Booking,
+          as: 'bookings',
+          where: {
+            booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
+            [Op.or]: [
+              {
+                check_in_date: { [Op.lte]: booking.check_out_date },
+                check_out_date: { [Op.gte]: booking.check_in_date }
+              }
+            ]
+          },
+          required: false
+        }]
+      });
+
+      if (!selectedRoom) {
+        return res.status(404).json({ message: 'Không tìm thấy phòng hợp lệ' });
+      }
+
+      // Kiểm tra phòng có trống không
+      if (selectedRoom.bookings && selectedRoom.bookings.length > 0) {
+        return res.status(400).json({ message: 'Phòng này đã được đặt trong khoảng thời gian này' });
+      }
+
+      // Gán phòng cho booking
+      booking.room_id = room_id;
+      await booking.save();
+
+      // Cập nhật trạng thái phòng thành 'booked' khi gán phòng
+      await Room.update(
+        { status: 'booked' },
+        { where: { room_id: room_id } }
+      );
     }
 
     // Cập nhật thời gian check-in và trạng thái
     booking.check_in_time = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
     booking.booking_status = 'checked_in';
     await booking.save();
+
+    // Cập nhật trạng thái phòng thành 'in_use'
+    await Room.update(
+      { status: 'in_use' },
+      { where: { room_id: booking.room_id } }
+    );
 
     return res.status(200).json({ 
       message: 'Check-in thành công',
@@ -1029,6 +1086,12 @@ exports.checkOut = async (req, res) => {
     booking.check_out_time = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
     booking.booking_status = 'checked_out';
     await booking.save();
+
+    // Cập nhật trạng thái phòng thành 'checked_out'
+    await Room.update(
+      { status: 'checked_out' },
+      { where: { room_id: booking.room_id } }
+    );
 
     return res.status(200).json({ 
       message: 'Check-out thành công',
@@ -1239,6 +1302,77 @@ exports.viewInvoice = async (req, res) => {
 
   } catch (error) {
     console.error('Error viewing invoice:', error);
+    return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+  }
+};
+
+// Admin: Cập nhật trạng thái phòng (checked_out -> cleaning -> available)
+exports.updateRoomStatus = async (req, res) => {
+  try {
+    const { room_id } = req.params;
+    const { status } = req.body;
+
+    // Kiểm tra phòng có tồn tại không
+    const room = await Room.findByPk(room_id);
+    if (!room) {
+      return res.status(404).json({ message: 'Không tìm thấy phòng' });
+    }
+
+    // Kiểm tra status hợp lệ
+    const validStatuses = ['checked_out', 'cleaning', 'available'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ 
+        message: 'Trạng thái không hợp lệ', 
+        valid_statuses: validStatuses 
+      });
+    }
+
+    // Kiểm tra trạng thái hiện tại và chỉ cho phép chuyển đổi theo luồng
+    // checked_out -> cleaning -> available
+    if (room.status === 'checked_out' && status !== 'cleaning') {
+      return res.status(400).json({ 
+        message: 'Phòng checked_out chỉ có thể chuyển sang cleaning',
+        current_status: room.status,
+        requested_status: status
+      });
+    }
+
+    if (room.status === 'cleaning' && status !== 'available') {
+      return res.status(400).json({ 
+        message: 'Phòng cleaning chỉ có thể chuyển sang available',
+        current_status: room.status,
+        requested_status: status
+      });
+    }
+
+    if (room.status === 'available' && status !== 'available') {
+      return res.status(400).json({ 
+        message: 'Phòng đã available, không thể chuyển sang trạng thái khác',
+        current_status: room.status,
+        requested_status: status
+      });
+    }
+
+    // Cập nhật trạng thái phòng
+    await Room.update(
+      { status: status },
+      { where: { room_id: room_id } }
+    );
+
+    const updatedRoom = await Room.findByPk(room_id);
+
+    return res.status(200).json({ 
+      message: 'Cập nhật trạng thái phòng thành công',
+      room: {
+        room_id: updatedRoom.room_id,
+        room_num: updatedRoom.room_num,
+        status: updatedRoom.status,
+        previous_status: room.status
+      }
+    });
+
+  } catch (error) {
+    console.error('Error updating room status:', error);
     return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
   }
 };

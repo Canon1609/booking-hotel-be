@@ -1431,7 +1431,86 @@ INSERT INTO booking_services (
   ```
 - **Lưu ý:** Sau check-out, booking chuyển sang trạng thái `checked_out`
 
-#### 9.3.7. Luồng trạng thái booking
+#### 9.3.6.1. Check-in với gán phòng (cho walk-in booking)
+- **POST** `http://localhost:5000/api/bookings/{booking_code}/check-in`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Body (JSON):**
+  ```json
+  {
+    "room_id": 5
+  }
+  ```
+- **Yêu cầu:** 
+  - Booking phải ở trạng thái `confirmed`
+  - Booking chưa có phòng được gán (walk-in booking)
+- **Response:**
+  ```json
+  {
+    "message": "Check-in thành công",
+    "booking_code": "A1B2C3",
+    "guest_name": "Nguyễn Văn A",
+    "room_type": "Deluxe",
+    "room_number": 101,
+    "check_in_time": "2024-01-15 14:30:00",
+    "statusCode": 200
+  }
+  ```
+- **Lưu ý:** 
+  - Nếu booking chưa có phòng, bắt buộc phải cung cấp `room_id` trong body
+  - Nếu booking đã có phòng, không cần `room_id`, chỉ cần gọi API
+  - Sau check-in, booking chuyển sang trạng thái `checked_in` và phòng chuyển sang `in_use`
+
+#### 9.3.7. Cập nhật trạng thái phòng (Admin only)
+- **PUT** `http://localhost:5000/api/bookings/room/:room_id/status`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Body (JSON):**
+  ```json
+  {
+    "status": "cleaning"
+  }
+  ```
+- **Response:**
+  ```json
+  {
+    "message": "Cập nhật trạng thái phòng thành công",
+    "room": {
+      "room_id": 5,
+      "room_num": 101,
+      "status": "cleaning",
+      "previous_status": "checked_out"
+    },
+    "statusCode": 200
+  }
+  ```
+
+**Trạng thái phòng và luồng chuyển đổi:**
+```
+available → booked → in_use → checked_out → cleaning → available
+```
+
+**Chi tiết trạng thái:**
+- `available` - Phòng sẵn sàng cho đặt phòng
+- `booked` - Phòng đã được đặt và chờ check-in
+- `in_use` - Phòng đang có khách
+- `checked_out` - Khách đã check-out, phòng cần dọn dẹp
+- `cleaning` - Phòng đang được dọn dẹp
+
+**Quy tắc chuyển đổi trạng thái:**
+- Chỉ được phép chuyển từ `checked_out` → `cleaning` → `available`
+- Không thể bỏ qua hoặc chuyển ngược lại
+- Admin có thể chuyển trạng thái phòng từ `checked_out` → `cleaning` → `available`
+
+**Yêu cầu khi cập nhật:**
+- Phòng phải tồn tại
+- Trạng thái mới phải hợp lệ theo luồng
+- Chỉ admin mới có thể cập nhật
+
+**Ví dụ luồng hoạt động:**
+1. Khách check-out → phòng chuyển sang `checked_out`
+2. Admin chuyển phòng sang `cleaning` để dọn dẹp
+3. Sau khi dọn xong, admin chuyển phòng sang `available` để đặt lại
+
+#### 9.3.8. Luồng trạng thái booking
 ```
 pending → confirmed → checked_in → checked_out
    ↓         ↓           ↓
@@ -1450,7 +1529,7 @@ cancelled  cancelled   (không thể hủy)
 - Khách đặt **loại phòng** (room_type), không phải phòng cụ thể
 - Lễ tân sử dụng `booking_code` để tìm và check-in/check-out
 
-#### 9.3.8. Luồng hoạt động chi tiết
+#### 9.3.9. Luồng hoạt động chi tiết
 
 **1. Đặt phòng online:**
 ```
@@ -1473,6 +1552,12 @@ Admin tạo booking → Chọn loại phòng → Thanh toán ngay → Gán phòn
 - Khi `checked_in`: Khách đã nhận phòng
 - Khi `checked_out`: Hoàn tất quá trình
 
+**5. Trạng thái phòng tự động thay đổi:**
+- Khi đặt phòng thành công: `available` → `booked`
+- Khi check-in: `booked` → `in_use`
+- Khi check-out: `in_use` → `checked_out`
+- Admin cập nhật sau khi dọn dẹp: `checked_out` → `cleaning` → `available`
+
 #### 9.3.9. Tóm tắt thay đổi quan trọng
 
 **✅ Đã sửa:**
@@ -1481,17 +1566,24 @@ Admin tạo booking → Chọn loại phòng → Thanh toán ngay → Gán phòn
 3. **Luồng đặt phòng:** Khách đặt loại phòng, hệ thống tự động gán phòng cụ thể
 4. **ENUM booking_status:** Thêm `checked_in` và `checked_out`
 5. **Database migration:** Thêm `room_type_id`, `room_assigned_at` vào bảng bookings
+6. **ENUM room status:** Thêm `in_use`, `checked_out` để quản lý trạng thái phòng
 
 **🔄 Luồng hoạt động mới:**
 - **Online:** Chọn loại phòng → Temp booking → Thanh toán → Webhook → Gán phòng → Check-in
-- **Walk-in:** Admin tạo booking → Chọn loại phòng → Thanh toán → Gán phòng → Check-in
+- **Walk-in:** Admin tạo booking → Chọn loại phòng → Thanh toán → Gán phòng khi check-in → Check-in
+- **Trạng thái phòng tự động:** `available` → `booked` → `in_use` → `checked_out` → `cleaning` → `available`
 
 **📊 Cấu trúc database:**
 - `bookings.room_type_id` (NOT NULL) - Loại phòng khách đặt
 - `bookings.room_id` (NULL) - Phòng cụ thể (chỉ khi đã gán)
 - `bookings.room_assigned_at` (NULL) - Thời gian gán phòng
+- `rooms.status` - Trạng thái phòng: available, booked, in_use, checked_out, cleaning
 
-#### 9.3.8. Hủy booking
+**🔄 API mới:**
+- **PUT** `/api/bookings/room/:room_id/status` - Admin cập nhật trạng thái phòng từ `checked_out` → `cleaning` → `available`
+- Check-in hỗ trợ gán phòng: Có thể cung cấp `room_id` trong body khi check-in walk-in booking
+
+#### 9.3.10. Hủy booking
 - **POST** `http://localhost:5000/api/bookings/1/cancel`
 - **Headers:** `Authorization: Bearer USER_TOKEN`
 - **Body:**
@@ -1508,12 +1600,12 @@ Admin tạo booking → Chọn loại phòng → Thanh toán ngay → Gán phòn
   }
   ```
 
-#### 9.3.6. Tạo hóa đơn PDF
+#### 9.3.11. Tạo hóa đơn PDF
 - **GET** `http://localhost:5000/api/bookings/1/invoice/pdf`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Response:** File PDF download
 
-#### 9.3.7. Xem hóa đơn HTML
+#### 9.3.12. Xem hóa đơn HTML
 - **GET** `http://localhost:5000/api/bookings/1/invoice`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Response:** HTML hóa đơn

@@ -51,4 +51,7 @@ router.get('/:id/invoice/pdf', protect, adminOnly, bookingController.generateInv
 // Xem hóa đơn HTML - Admin/Staff
 router.get('/:id/invoice', protect, adminOnly, bookingController.viewInvoice);
 
+// Cập nhật trạng thái phòng - Admin/Staff
+router.put('/room/:room_id/status', protect, adminOnly, bookingController.updateRoomStatus);
+
 module.exports = router;
