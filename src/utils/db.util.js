@@ -27,6 +27,7 @@ async function ensureImagesColumns() {
   await addImagesColumnIfMissing('hotels');
   await addImagesColumnIfMissing('room_types');
   await addImagesColumnIfMissing('services');
+  await addImagesColumnIfMissing('reviews');
 }
 
 async function ensureServiceFields() {
@@ -168,15 +169,52 @@ async function ensureBookingRoomType() {
     }
     
     // Cập nhật room_id thành nullable
-    await sequelize.query(`
-      ALTER TABLE \`bookings\` 
-      MODIFY COLUMN \`room_id\` INT NULL,
-      ADD COLUMN \`room_assigned_at\` DATETIME NULL COMMENT 'Thời gian lễ tân chỉ định phòng'
-    `);
-    console.log('✅ Updated room_id to nullable and added room_assigned_at');
+    try {
+      await sequelize.query(`
+        ALTER TABLE \`bookings\` 
+        MODIFY COLUMN \`room_id\` INT NULL,
+        ADD COLUMN \`room_assigned_at\` DATETIME NULL COMMENT 'Thời gian lễ tân chỉ định phòng'
+      `);
+      console.log('✅ Updated room_id to nullable and added room_assigned_at');
+    } catch (err) {
+      // Ignore if room_assigned_at already exists
+      if (err.message && !err.message.includes('room_assigned_at')) {
+        throw err;
+      }
+    }
     
   } catch (error) {
     console.error('Error updating booking room type structure:', error);
+  }
+}
+
+// Cập nhật reviews table: thêm images và xóa image cũ nếu có
+async function ensureReviewsImages() {
+  try {
+    // Kiểm tra xem đã có images column chưa
+    const hasImages = await columnExists('reviews', 'images');
+    
+    if (!hasImages) {
+      // Thêm cột images
+      await sequelize.query(`
+        ALTER TABLE \`reviews\` 
+        ADD COLUMN \`images\` JSON NULL COMMENT 'Array of image URLs'
+      `);
+      console.log('✅ Added images column to reviews table');
+    }
+    
+    // Kiểm tra xem có column image cũ không, nếu có thì xóa
+    const hasImage = await columnExists('reviews', 'image');
+    if (hasImage) {
+      await sequelize.query(`
+        ALTER TABLE \`reviews\` 
+        DROP COLUMN \`image\`
+      `);
+      console.log('✅ Removed old image column from reviews table');
+    }
+    
+  } catch (error) {
+    console.error('Error updating reviews table:', error);
   }
 }
 
@@ -189,7 +227,8 @@ module.exports = {
   ensureBookingRoomType,
   ensureRoomStatusEnum,
   ensureUserCccdColumn,
-  ensureUserEmailNullable
+  ensureUserEmailNullable,
+  ensureReviewsImages
 };
 
 // Add updated_at to room_prices if missing

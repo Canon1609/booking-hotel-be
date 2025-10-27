@@ -14,6 +14,7 @@ const promotionRoutes = require('./routes/promotionRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
 const postRoutes = require('./routes/postRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
+const reviewRoutes = require('./routes/reviewRoutes');
 require('dotenv').config();  // Load các biến môi trường từ .env
 const { sequelize } = require('./models'); // Khởi tạo models và associations
 const { ensureImagesColumns, ensureUniqueRoomNumberPerHotel, ensureRoomPricesUpdatedAt } = require('./utils/db.util');
@@ -57,6 +58,7 @@ app.use('/api/promotions', promotionRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/posts', postRoutes);
 app.use('/api/bookings', bookingRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 // 404 handler
 app.use((req, res, next) => {

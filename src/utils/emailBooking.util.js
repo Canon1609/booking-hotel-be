@@ -1,4 +1,4 @@
-const { sendEmail } = require('./email.util');
+const sendEmail = require('./email.util');
 const { Booking, User, Room, RoomType } = require('../models');
 const moment = require('moment-timezone');
 
@@ -74,11 +74,12 @@ const sendBookingReminderEmails = async () => {
             </div>
           `;
 
-          await sendEmail({
-            to: booking.user.email,
-            subject: `Nhắc nhở check-in ngày mai - ${booking.booking_code}`,
-            html: emailContent
-          });
+          await sendEmail(
+            booking.user.email,
+            `Nhắc nhở check-in ngày mai - ${booking.booking_code}`,
+            null,
+            emailContent
+          );
 
           console.log(`[EMAIL REMINDER] Đã gửi email nhắc nhở cho booking ${booking.booking_code}`);
         } catch (emailError) {
@@ -137,11 +138,12 @@ const sendBookingConfirmationEmail = async (booking, user) => {
       </div>
     `;
 
-    await sendEmail({
-      to: user.email,
-      subject: `Xác nhận đặt phòng thành công - ${booking.booking_code}`,
-      html: emailContent
-    });
+    await sendEmail(
+      user.email,
+      `Xác nhận đặt phòng thành công - ${booking.booking_code}`,
+      null,
+      emailContent
+    );
 
     console.log(`[EMAIL CONFIRMATION] Đã gửi email xác nhận cho booking ${booking.booking_code}`);
   } catch (error) {
@@ -211,11 +213,12 @@ const sendInvoiceEmail = async (booking, user, invoiceData) => {
       </div>
     `;
 
-    await sendEmail({
-      to: user.email,
-      subject: `Hóa đơn thanh toán - ${booking.booking_code}`,
-      html: emailContent
-    });
+    await sendEmail(
+      user.email,
+      `Hóa đơn thanh toán - ${booking.booking_code}`,
+      null,
+      emailContent
+    );
 
     console.log(`[EMAIL INVOICE] Đã gửi email hóa đơn cho booking ${booking.booking_code}`);
   } catch (error) {
@@ -223,8 +226,217 @@ const sendInvoiceEmail = async (booking, user, invoiceData) => {
   }
 };
 
+// Gửi email mời đánh giá sau khi check-out
+const sendReviewRequestEmail = async (booking, user) => {
+  try {
+    if (!user || !user.email) {
+      console.log('Không có email để gửi mời đánh giá');
+      return;
+    }
+
+    // Tạo link đánh giá (frontend sẽ xử lý phần này)
+    const reviewLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/review/${booking.booking_code}`;
+
+    const emailContent = `
+      <!DOCTYPE html>
+      <html lang="vi">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Cảm ơn bạn đã sử dụng dịch vụ của chúng tôi!</title>
+        <style>
+          body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            margin: 0; 
+            padding: 0; 
+            background-color: #f4f4f4; 
+          }
+          .container { 
+            max-width: 600px; 
+            margin: 0 auto; 
+            background-color: #ffffff; 
+          }
+          .header { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            color: white; 
+            padding: 40px; 
+            text-align: center; 
+          }
+          .header h1 { 
+            margin: 0; 
+            font-size: 28px; 
+            font-weight: 300; 
+          }
+          .content { 
+            padding: 40px 30px; 
+          }
+          .thank-you-icon { 
+            font-size: 48px; 
+            margin-bottom: 20px; 
+          }
+          .booking-details { 
+            background-color: #f8f9fa; 
+            border-radius: 8px; 
+            padding: 25px; 
+            margin: 25px 0; 
+          }
+          .detail-row { 
+            display: flex; 
+            justify-content: space-between; 
+            margin-bottom: 15px; 
+            padding-bottom: 10px; 
+            border-bottom: 1px solid #e9ecef; 
+          }
+          .detail-row:last-child { 
+            border-bottom: none; 
+            margin-bottom: 0; 
+          }
+          .detail-label { 
+            font-weight: 600; 
+            color: #495057; 
+          }
+          .detail-value { 
+            color: #212529; 
+          }
+          .review-section { 
+            background-color: #fff3cd; 
+            border-left: 4px solid #ffc107; 
+            padding: 20px; 
+            border-radius: 8px; 
+            margin: 25px 0; 
+          }
+          .review-section h3 { 
+            margin-top: 0; 
+            color: #856404; 
+          }
+          .btn { 
+            display: inline-block; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            color: white !important; 
+            padding: 15px 30px; 
+            text-decoration: none; 
+            border-radius: 8px; 
+            margin: 20px 0; 
+            font-weight: bold; 
+            text-align: center; 
+          }
+          .btn:hover { 
+            opacity: 0.9; 
+          }
+          .footer { 
+            background-color: #6c757d; 
+            color: white; 
+            padding: 20px; 
+            text-align: center; 
+            font-size: 14px; 
+          }
+          .important-note { 
+            background-color: #d1ecf1; 
+            border-left: 4px solid #0c5460; 
+            padding: 15px; 
+            margin: 20px 0; 
+            border-radius: 8px; 
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <div class="thank-you-icon">💖</div>
+            <h1>Cảm ơn bạn đã chọn Bean Hotel!</h1>
+          </div>
+          
+          <div class="content">
+            <p style="font-size: 16px; line-height: 1.6;">Xin chào <strong>${user.full_name}</strong>,</p>
+            
+            <p style="font-size: 16px; line-height: 1.6;">
+              Cảm ơn bạn đã tin tưởng và lựa chọn Bean Hotel cho kỳ nghỉ của mình. Chúng tôi rất trân trọng sự ủng hộ của bạn!
+            </p>
+            
+            <div class="booking-details">
+              <h3 style="margin-top: 0; color: #495057;">Thông tin đặt phòng</h3>
+              <div class="detail-row">
+                <span class="detail-label">Mã đặt phòng:</span>
+                <span class="detail-value"><strong>${booking.booking_code}</strong></span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Loại phòng:</span>
+                <span class="detail-value">${booking.room_type?.room_type_name || 'N/A'}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Số phòng:</span>
+                <span class="detail-value">${booking.room?.room_num || 'N/A'}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Ngày check-in:</span>
+                <span class="detail-value">${moment(booking.check_in_date).format('DD/MM/YYYY')}</span>
+              </div>
+              <div class="detail-row">
+                <span class="detail-label">Ngày check-out:</span>
+                <span class="detail-value">${moment(booking.check_out_date).format('DD/MM/YYYY')}</span>
+              </div>
+            </div>
+            
+            <div class="review-section">
+              <h3>⭐ Giúp chúng tôi cải thiện dịch vụ</h3>
+              <p style="line-height: 1.6; margin-bottom: 0;">
+                Trải nghiệm của bạn là điều quan trọng nhất đối với chúng tôi! 
+                Chúng tôi rất mong nhận được phản hồi của bạn để có thể phục vụ tốt hơn trong tương lai.
+              </p>
+              <p style="line-height: 1.6;">
+                Đánh giá của bạn sẽ giúp các khách hàng khác có thêm thông tin hữu ích 
+                và giúp chúng tôi không ngừng nâng cao chất lượng dịch vụ.
+              </p>
+              <div style="text-align: center; margin: 25px 0;">
+                <a href="${reviewLink}" class="btn" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white !important; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;">
+                  ✍️ Đánh giá trải nghiệm
+                </a>
+              </div>
+            </div>
+            
+            <div class="important-note">
+              <strong>💡 Lưu ý:</strong> Bạn chỉ có thể đánh giá một lần cho mỗi đặt phòng. 
+              Đánh giá của bạn sẽ được hiển thị công khai để giúp các khách hàng khác tham khảo.
+            </div>
+            
+            <p style="font-size: 16px; line-height: 1.6;">
+              Một lần nữa, chúng tôi xin cảm ơn bạn đã đến với Bean Hotel. 
+              Chúng tôi rất mong được phục vụ bạn trong những lần tiếp theo!
+            </p>
+            
+            <p style="line-height: 1.6;">
+              Trân trọng,<br>
+              <strong>Bean Hotel Team</strong>
+            </p>
+          </div>
+          
+          <div class="footer">
+            <p><strong>Bean Hotel</strong></p>
+            <p>📧 Email: info@beanhotel.com | 📞 Hotline: 1900-xxxx</p>
+            <p>Địa chỉ: 123 Đường ABC, Quận 1, TP.HCM</p>
+            <p>Rất hân hạnh được phục vụ bạn!</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    await sendEmail(
+      user.email,
+      `Cảm ơn bạn đã chọn Bean Hotel - Mời đánh giá trải nghiệm`,
+      null,
+      emailContent
+    );
+
+    console.log(`[REVIEW EMAIL] Đã gửi email mời đánh giá cho booking ${booking.booking_code}`);
+  } catch (error) {
+    console.error(`[REVIEW EMAIL] Lỗi gửi email mời đánh giá:`, error);
+  }
+};
+
 module.exports = {
   sendBookingReminderEmails,
   sendBookingConfirmationEmail,
-  sendInvoiceEmail
+  sendInvoiceEmail,
+  sendReviewRequestEmail
 };

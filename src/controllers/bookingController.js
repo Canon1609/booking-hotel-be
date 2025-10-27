@@ -1,11 +1,11 @@
 const { Op } = require('sequelize');
 const moment = require('moment-timezone');
-const { Booking, Room, RoomType, RoomPrice, User, Service, BookingService, Promotion, Payment } = require('../models');
+const { Booking, Room, RoomType, RoomPrice, User, Service, BookingService, Promotion, Payment, Review } = require('../models');
 const redisService = require('../utils/redis.util');
 const payOSService = require('../utils/payos.util');
 const sendEmail = require('../utils/email.util');
 const pdfService = require('../utils/pdf.util');
-const { sendInvoiceEmail } = require('../utils/emailBooking.util');
+const { sendInvoiceEmail, sendReviewRequestEmail } = require('../utils/emailBooking.util');
 
 // ========== LUỒNG 1: ĐẶT PHÒNG TRỰC TUYẾN (ONLINE) ==========
 
@@ -760,6 +760,83 @@ exports.createWalkInBooking = async (req, res) => {
 
 // ========== CÁC API CHUNG ==========
 
+// Lấy lịch sử đặt phòng của user hiện tại
+exports.getMyBookings = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, status } = req.query;
+    const offset = (page - 1) * limit;
+    const userId = req.user.id;
+
+    const where = { user_id: userId };
+
+    if (status) where.booking_status = status;
+
+    const result = await Booking.findAndCountAll({
+      where,
+      include: [
+        { model: RoomType, as: 'room_type', attributes: ['room_type_id', 'room_type_name', 'capacity', 'amenities'] },
+        { model: Room, as: 'room', attributes: ['room_id', 'room_num', 'status'], include: [{ model: RoomType, as: 'room_type', attributes: ['room_type_name'] }] },
+        { model: BookingService, as: 'booking_services', include: [{ model: Service, as: 'service', attributes: ['service_id', 'name', 'price'] }] },
+        { model: Promotion, as: 'promotion', attributes: ['promotion_id', 'promotion_code', 'name', 'discount_type', 'amount'] },
+        { model: Review, as: 'reviews', attributes: ['review_id'], limit: 1 }
+      ],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['created_at', 'DESC']]
+    });
+
+    return res.status(200).json({
+      message: 'Lấy lịch sử đặt phòng thành công',
+      bookings: result.rows.map(booking => ({
+        booking_id: booking.booking_id,
+        booking_code: booking.booking_code,
+        room_type_name: booking.room_type?.room_type_name,
+        room_num: booking.room?.room_num,
+        check_in_date: booking.check_in_date,
+        check_out_date: booking.check_out_date,
+        num_person: booking.num_person,
+        total_price: parseFloat(booking.total_price),
+        final_price: parseFloat(booking.final_price || booking.total_price),
+        booking_status: booking.booking_status,
+        payment_status: booking.payment_status,
+        booking_type: booking.booking_type,
+        check_in_time: booking.check_in_time,
+        check_out_time: booking.check_out_time,
+        note: booking.note,
+        created_at: booking.created_at,
+        services: booking.booking_services?.map(bs => ({
+          service_name: bs.service?.name,
+          quantity: bs.quantity,
+          unit_price: parseFloat(bs.unit_price),
+          total_price: parseFloat(bs.total_price),
+          payment_type: bs.payment_type
+        })) || [],
+        promotion: booking.promotion ? {
+          promotion_code: booking.promotion.promotion_code,
+          name: booking.promotion.name,
+          discount_type: booking.promotion.discount_type,
+          amount: parseFloat(booking.promotion.amount)
+        } : null,
+        has_review: booking.reviews && booking.reviews.length > 0,
+        can_review: booking.booking_status === 'checked_out' && (!booking.reviews || booking.reviews.length === 0),
+        review_link: booking.booking_status === 'checked_out' && (!booking.reviews || booking.reviews.length === 0) 
+          ? `${process.env.FRONTEND_URL || 'http://localhost:3000'}/review/${booking.booking_code}` 
+          : null
+      })),
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(result.count / limit),
+        totalItems: result.count,
+        pageSize: parseInt(limit)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting my bookings:', error);
+    return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+  }
+};
+
 // Lấy danh sách booking
 exports.getBookings = async (req, res) => {
   try {
@@ -1094,10 +1171,19 @@ exports.checkOut = async (req, res) => {
       { where: { room_id: booking.room_id } }
     );
 
+    // Gửi email mời đánh giá
+    try {
+      await sendReviewRequestEmail(booking, booking.user);
+    } catch (emailError) {
+      console.error('Error sending review email:', emailError);
+      // Không fail checkout nếu không gửi được email
+    }
+
     return res.status(200).json({ 
       message: 'Check-out thành công',
       check_out_time: booking.check_out_time,
-      payment_status: booking.payment_status
+      payment_status: booking.payment_status,
+      review_email_sent: true
     });
 
   } catch (error) {

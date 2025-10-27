@@ -1330,7 +1330,62 @@ INSERT INTO booking_services (
 
 ### 9.3. CÁC API CHUNG
 
-#### 9.3.1. Lấy danh sách booking
+#### 9.3.1. Lấy lịch sử đặt phòng của user hiện tại (User)
+- **GET** `http://localhost:5000/api/bookings/my-bookings`
+- **Headers:** `Authorization: Bearer USER_TOKEN`
+- **Query params:**
+  - `page=1&limit=10` - Phân trang (mặc định: page=1, limit=10)
+  - `status=confirmed` - Lọc theo trạng thái (pending/confirmed/cancelled/checked_in/checked_out)
+- **Response:**
+  ```json
+  {
+    "message": "Lấy lịch sử đặt phòng thành công",
+    "bookings": [
+      {
+        "booking_id": 1,
+        "booking_code": "A1B2C3",
+        "room_type_name": "Deluxe",
+        "room_num": 101,
+        "check_in_date": "2024-01-15",
+        "check_out_date": "2024-01-17",
+        "num_person": 2,
+        "total_price": 2400000,
+        "final_price": 2400000,
+        "booking_status": "confirmed",
+        "payment_status": "paid",
+        "booking_type": "online",
+        "check_in_time": null,
+        "check_out_time": null,
+        "note": null,
+        "created_at": "2024-01-10T10:30:00.000Z",
+        "services": [
+          {
+            "service_name": "Đưa đón sân bay",
+            "quantity": 2,
+            "unit_price": 200000,
+            "total_price": 400000,
+            "payment_type": "prepaid"
+          }
+        ],
+        "promotion": null
+      }
+    ],
+    "pagination": {
+      "currentPage": 1,
+      "totalPages": 1,
+      "totalItems": 1,
+      "pageSize": 10
+    },
+    "statusCode": 200
+  }
+  ```
+
+**Lưu ý:**
+- Chỉ trả về các booking của user đang đăng nhập
+- Có thể lọc theo trạng thái booking với query param `status`
+- Mỗi booking bao gồm thông tin chi tiết về phòng, dịch vụ và promotion nếu có
+
+#### 9.3.2. Lấy danh sách booking (Admin)
 - **GET** `http://localhost:5000/api/bookings`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Query params:**
@@ -1373,7 +1428,7 @@ INSERT INTO booking_services (
   }
   ```
 
-#### 9.3.2. Lấy booking theo ID
+#### 9.3.3. Lấy booking theo ID
 - **GET** `http://localhost:5000/api/bookings/1`
 - **Headers:** `Authorization: Bearer USER_TOKEN`
 - **Response:**
@@ -1417,7 +1472,7 @@ INSERT INTO booking_services (
   }
   ```
 
-#### 9.3.3. Tìm booking theo mã đặt phòng (cho check-in)
+#### 9.3.4. Tìm booking theo mã đặt phòng (cho check-in)
 - **GET** `http://localhost:5000/api/bookings/code/A1B2C3`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Response:**
@@ -1453,7 +1508,7 @@ INSERT INTO booking_services (
   }
   ```
 
-#### 9.3.4. Lấy danh sách phòng trống (cho lễ tân)
+#### 9.3.5. Lấy danh sách phòng trống (cho lễ tân)
 - **GET** `http://localhost:5000/api/bookings/available-rooms?room_type_id=1&check_in_date=2024-01-15&check_out_date=2024-01-17`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Response:**
@@ -1484,7 +1539,7 @@ INSERT INTO booking_services (
   }
   ```
 
-#### 9.3.5. Check-in (phòng đã được gán sẵn)
+#### 9.3.6. Check-in (phòng đã được gán sẵn)
 - **POST** `http://localhost:5000/api/bookings/{booking_code}/check-in`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Yêu cầu:** 
@@ -1509,7 +1564,7 @@ INSERT INTO booking_services (
   - Lễ tân chỉ cần xác nhận check-in, không cần chỉ định phòng
   - Sau check-in, booking chuyển sang trạng thái `checked_in`
 
-#### 9.3.6. Check-out
+#### 9.3.7. Check-out
 - **POST** `http://localhost:5000/api/bookings/{booking_code}/check-out`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Yêu cầu:** 
@@ -1526,7 +1581,7 @@ INSERT INTO booking_services (
   ```
 - **Lưu ý:** Sau check-out, booking chuyển sang trạng thái `checked_out`
 
-#### 9.3.6.1. Check-in với gán phòng (cho walk-in booking)
+#### 9.3.7.1. Check-in với gán phòng (cho walk-in booking)
 - **POST** `http://localhost:5000/api/bookings/{booking_code}/check-in`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Body (JSON):**
@@ -1555,7 +1610,7 @@ INSERT INTO booking_services (
   - Nếu booking đã có phòng, không cần `room_id`, chỉ cần gọi API
   - Sau check-in, booking chuyển sang trạng thái `checked_in` và phòng chuyển sang `in_use`
 
-#### 9.3.7. Cập nhật trạng thái phòng (Admin only)
+#### 9.3.8. Cập nhật trạng thái phòng (Admin only)
 - **PUT** `http://localhost:5000/api/bookings/room/:room_id/status`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Body (JSON):**
@@ -1605,7 +1660,7 @@ available → booked → in_use → checked_out → cleaning → available
 2. Admin chuyển phòng sang `cleaning` để dọn dẹp
 3. Sau khi dọn xong, admin chuyển phòng sang `available` để đặt lại
 
-#### 9.3.8. Luồng trạng thái booking
+#### 9.3.9. Luồng trạng thái booking
 ```
 pending → confirmed → checked_in → checked_out
    ↓         ↓           ↓
@@ -1624,7 +1679,7 @@ cancelled  cancelled   (không thể hủy)
 - Khách đặt **loại phòng** (room_type), không phải phòng cụ thể
 - Lễ tân sử dụng `booking_code` để tìm và check-in/check-out
 
-#### 9.3.9. Luồng hoạt động chi tiết
+#### 9.3.10. Luồng hoạt động chi tiết
 
 **1. Đặt phòng online:**
 ```
@@ -1666,7 +1721,7 @@ Tạo user nhanh (chỉ cần tên + phone) → Chọn phòng available → Tạ
 - Khi check-out: `in_use` → `checked_out`
 - Admin cập nhật sau khi dọn dẹp: `checked_out` → `cleaning` → `available`
 
-#### 9.3.9. Tóm tắt thay đổi quan trọng
+#### 9.3.11. Tóm tắt thay đổi quan trọng
 
 **✅ Đã sửa:**
 1. **Mối quan hệ database:** Booking ↔ RoomType (chính), Booking ↔ Room (phụ)
@@ -1697,7 +1752,7 @@ Tạo user nhanh (chỉ cần tên + phone) → Chọn phòng available → Tạ
 - Check-in hỗ trợ gán phòng: Có thể cung cấp `room_id` trong body khi check-in walk-in booking
 - Check-out tự động chuyển `payment_status` từ `pending` → `paid` cho walk-in booking
 
-#### 9.3.10. Hủy booking
+#### 9.3.12. Hủy booking
 - **POST** `http://localhost:5000/api/bookings/1/cancel`
 - **Headers:** `Authorization: Bearer USER_TOKEN`
 - **Body:**
@@ -1714,12 +1769,12 @@ Tạo user nhanh (chỉ cần tên + phone) → Chọn phòng available → Tạ
   }
   ```
 
-#### 9.3.11. Tạo hóa đơn PDF
+#### 9.3.13. Tạo hóa đơn PDF
 - **GET** `http://localhost:5000/api/bookings/1/invoice/pdf`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Response:** File PDF download
 
-#### 9.3.12. Xem hóa đơn HTML
+#### 9.3.14. Xem hóa đơn HTML
 - **GET** `http://localhost:5000/api/bookings/1/invoice`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Response:** HTML hóa đơn
@@ -1929,9 +1984,201 @@ Tạo user nhanh (chỉ cần tên + phone) → Chọn phòng available → Tạ
 
 ---
 
-## 10. TEST FLOW HOÀN CHỈNH - TỪ TẠO TÀI KHOẢN ĐẾN ĐẶT PHÒNG THÀNH CÔNG
+## 10. REVIEW APIs
 
-### 10.1. CHUẨN BỊ TEST
+### Tổng quan
+Hệ thống đánh giá cho phép khách hàng:
+- Đánh giá trải nghiệm sau khi check-out
+- Chỉnh sửa hoặc xóa đánh giá của mình
+- Xem các đánh giá của loại phòng (public)
+
+### 10.1. Tạo đánh giá mới
+- **POST** `http://localhost:5000/api/reviews`
+- **Headers:** 
+  - `Authorization: Bearer USER_TOKEN`
+- **Body (multipart/form-data):**
+  - `booking_id`: 1 (required)
+  - `rating`: 5 (required, số từ 1-5)
+  - `comment`: "Phòng rất sạch sẽ, dịch vụ tốt!" (optional)
+  - `images`: [file upload] (optional, cho phép tối đa 10 ảnh)
+- **Response:**
+  ```json
+  {
+    "message": "Tạo review thành công",
+    "review": {
+      "review_id": 1,
+      "user_id": 2,
+      "booking_id": 1,
+      "rating": 5,
+      "comment": "Phòng rất sạch sẽ, dịch vụ tốt!",
+      "images": ["https://s3.amazonaws.com/bucket/reviews/url1.jpg", "https://s3.amazonaws.com/bucket/reviews/url2.jpg"],
+      "created_at": "2024-01-15T10:30:00.000Z",
+      "user": {
+        "user_id": 2,
+        "full_name": "Nguyễn Văn A",
+        "email": "nguyenvana@email.com"
+      },
+      "booking": {
+        "booking_id": 1,
+        "booking_code": "A1B2C3",
+        "room_type_id": 1
+      }
+    },
+    "statusCode": 201
+  }
+  ```
+
+**Lưu ý:**
+- Chỉ có thể đánh giá sau khi đã check-out
+- Mỗi booking chỉ có thể đánh giá 1 lần
+- Rating phải là số từ 1 đến 5
+- Cho phép upload tối đa 10 ảnh
+- Ảnh được upload lên S3 và trả về URL
+- Email mời đánh giá sẽ tự động gửi sau khi check-out
+
+### 10.2. Cập nhật đánh giá
+- **PUT** `http://localhost:5000/api/reviews/1`
+- **Headers:** 
+  - `Authorization: Bearer USER_TOKEN`
+- **Body (multipart/form-data):**
+  - `rating`: 4 (optional, số từ 1-5)
+  - `comment`: "Đã cập nhật đánh giá" (optional)
+  - `images`: [file upload] (optional, tối đa 10 ảnh, sẽ thay thế toàn bộ ảnh cũ)
+- **Response:**
+  ```json
+  {
+    "message": "Cập nhật review thành công",
+    "review": { /* review data */ },
+    "statusCode": 200
+  }
+  ```
+
+**Lưu ý:**
+- Chỉ user sở hữu review mới có quyền cập nhật
+
+### 10.3. Xóa đánh giá
+- **DELETE** `http://localhost:5000/api/reviews/1`
+- **Headers:** `Authorization: Bearer USER_TOKEN`
+- **Response:**
+  ```json
+  {
+    "message": "Xóa review thành công",
+    "statusCode": 200
+  }
+  ```
+
+**Lưu ý:**
+- Chỉ user sở hữu review mới có quyền xóa
+
+### 10.4. Lấy đánh giá theo loại phòng (Public)
+- **GET** `http://localhost:5000/api/reviews/room-type/1?page=1&limit=10`
+- **Query params:**
+  - `page=1&limit=10` - Phân trang
+- **Response:**
+  ```json
+  {
+    "message": "Lấy danh sách reviews thành công",
+    "reviews": [
+      {
+        "review_id": 1,
+        "rating": 5,
+        "comment": "Phòng rất sạch sẽ, dịch vụ tốt!",
+        "image": "review_image.jpg",
+        "created_at": "2024-01-15T10:30:00.000Z",
+        "updated_at": "2024-01-15T10:30:00.000Z",
+        "user": {
+          "user_id": 2,
+          "full_name": "Nguyễn Văn A"
+        },
+        "booking": {
+          "booking_code": "A1B2C3",
+          "room_type_name": "Deluxe"
+        }
+      }
+    ],
+    "pagination": {
+      "currentPage": 1,
+      "totalPages": 1,
+      "totalItems": 1,
+      "pageSize": 10
+    },
+    "statusCode": 200
+  }
+  ```
+
+**Lưu ý:**
+- API này không cần authentication
+- Hiển thị tất cả reviews của loại phòng đó
+- Sử dụng để hiển thị review trên trang chi tiết phòng
+
+### 10.5. Lấy đánh giá của user hiện tại
+- **GET** `http://localhost:5000/api/reviews/my-reviews?page=1&limit=10`
+- **Headers:** `Authorization: Bearer USER_TOKEN`
+- **Query params:**
+  - `page=1&limit=10` - Phân trang
+- **Response:**
+  ```json
+  {
+    "message": "Lấy danh sách reviews của bạn thành công",
+    "reviews": [
+      {
+        "review_id": 1,
+        "rating": 5,
+        "comment": "Phòng rất sạch sẽ, dịch vụ tốt!",
+        "image": "review_image.jpg",
+        "created_at": "2024-01-15T10:30:00.000Z",
+        "updated_at": "2024-01-15T10:30:00.000Z",
+        "booking": {
+          "booking_id": 1,
+          "booking_code": "A1B2C3",
+          "room_type_name": "Deluxe",
+          "room_num": 101
+        }
+      }
+    ],
+    "pagination": {
+      "currentPage": 1,
+      "totalPages": 1,
+      "totalItems": 1,
+      "pageSize": 10
+    },
+    "statusCode": 200
+  }
+  ```
+
+### 10.6. Email mời đánh giá
+Sau khi check-out, user sẽ nhận email tự động với:
+- Lời cảm ơn từ khách sạn
+- Thông tin booking
+- Link đánh giá trải nghiệm
+- Lời mời chia sẻ feedback
+
+### 10.7. Đánh giá trong lịch sử đặt phòng
+Khi gọi API `GET /api/bookings/my-bookings`, mỗi booking sẽ có thêm:
+```json
+{
+  "has_review": false,
+  "can_review": true,
+  "review_link": "http://localhost:3000/review/A1B2C3"
+}
+```
+
+**Ý nghĩa:**
+- `has_review`: Đã có review chưa (true/false)
+- `can_review`: Có thể đánh giá không (chỉ true khi đã check-out và chưa có review)
+- `review_link`: Link đến trang đánh giá (chỉ có khi `can_review = true`)
+
+**Luồng sử dụng:**
+1. User xem lịch sử đặt phòng
+2. Thấy booking có `can_review: true`
+3. Click vào `review_link` để đánh giá
+4. Sau khi đánh giá, `has_review` chuyển thành `true`
+
+---
+
+## 11. TEST FLOW HOÀN CHỈNH - TỪ TẠO TÀI KHOẢN ĐẾN ĐẶT PHÒNG THÀNH CÔNG
+
+### 11.1. CHUẨN BỊ TEST
 
 **Bước 1: Cấu hình Database (chỉ cần làm 1 lần)**
 ```bash
@@ -1952,7 +2199,7 @@ npm start
 node reset-database.js
 ```
 
-### 10.2. TEST FLOW CHI TIẾT
+### 11.2. TEST FLOW CHI TIẾT
 
 #### **Phase 1: Tạo User Accounts**
 
@@ -2189,7 +2436,7 @@ node reset-database.js
   }
   ```
 
-### 10.3. TEST PROMOTION RIÊNG BIỆT
+### 11.3. TEST PROMOTION RIÊNG BIỆT
 
 #### **Test Case 1: Promotion hợp lệ**
 - **Tạo promotion** với `promotion_code: "SUMMER2024"`
@@ -2211,7 +2458,7 @@ node reset-database.js
 - **Sử dụng promotion** 1 lần
 - **Sử dụng promotion** lần 2 → Phải trả về lỗi "Đã hết lượt sử dụng"
 
-### 10.4. KẾT QUẢ MONG ĐỢI
+### 11.4. KẾT QUẢ MONG ĐỢI
 
 **Sau khi chạy xong test flow:**
 - ✅ 2 user accounts (admin + customer)
@@ -2234,7 +2481,7 @@ Booking ID: 1 (online + promotion)
 Booking ID: 2 (walk-in)
 ```
 
-### 10.5. SCRIPT TỰ ĐỘNG
+### 11.5. SCRIPT TỰ ĐỘNG
 
 **Tạo dữ liệu mẫu nhanh:**
 ```bash
@@ -2254,7 +2501,7 @@ node test-create-promotions.js
 
 ---
 
-## 11. TROUBLESHOOTING
+## 12. TROUBLESHOOTING
 
 ### Lỗi thường gặp
 1. **401 Unauthorized**: Token hết hạn hoặc không hợp lệ
@@ -2270,7 +2517,7 @@ node test-create-promotions.js
 
 ---
 
-## 12. 🚀 HƯỚNG DẪN TEST PAYOS THẬT
+## 13. 🚀 HƯỚNG DẪN TEST PAYOS THẬT
 
 ### **Bước 1: Tạo booking tạm thời**
 ```bash

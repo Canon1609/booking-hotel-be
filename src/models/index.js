@@ -46,6 +46,10 @@ Booking.belongsTo(Room, { foreignKey: 'room_id', as: 'room' });
 Booking.hasMany(Payment, { foreignKey: 'booking_id', as: 'payments' });
 Payment.belongsTo(Booking, { foreignKey: 'booking_id', as: 'booking' });
 
+// Booking ↔ Promotion
+Promotion.hasMany(Booking, { foreignKey: 'promotion_id', as: 'bookings' });
+Booking.belongsTo(Promotion, { foreignKey: 'promotion_id', as: 'promotion' });
+
 // Hotel ↔ Service
 Hotel.hasMany(Service, { foreignKey: 'hotel_id', as: 'services' });
 Service.belongsTo(Hotel, { foreignKey: 'hotel_id', as: 'hotel' });
@@ -65,6 +69,14 @@ Post.belongsTo(User, { foreignKey: 'user_id', as: 'author' });
 // Category ↔ Post
 Category.hasMany(Post, { foreignKey: 'category_id', as: 'posts' });
 Post.belongsTo(Category, { foreignKey: 'category_id', as: 'category' });
+
+// User ↔ Review
+User.hasMany(Review, { foreignKey: 'user_id', as: 'reviews' });
+Review.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
+// Booking ↔ Review
+Booking.hasMany(Review, { foreignKey: 'booking_id', as: 'reviews' });
+Review.belongsTo(Booking, { foreignKey: 'booking_id', as: 'booking' });
 
 module.exports = {
   sequelize,

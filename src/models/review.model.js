@@ -22,9 +22,10 @@ const Review = sequelize.define('Review', {
     type: DataTypes.TEXT,
     allowNull: true
   },
-  image: {
-    type: DataTypes.STRING(255),
-    allowNull: true
+  images: {
+    type: DataTypes.JSON,
+    allowNull: true,
+    comment: 'Array of image URLs'
   },
   booking_id: {
     type: DataTypes.INTEGER,

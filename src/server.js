@@ -43,6 +43,7 @@ async function syncDatabase() {
     const ensureRoomStatusEnum = dbUtil.ensureRoomStatusEnum;
     const ensureUserCccdColumn = dbUtil.ensureUserCccdColumn;
     const ensureUserEmailNullable = dbUtil.ensureUserEmailNullable;
+    const ensureReviewsImages = dbUtil.ensureReviewsImages;
     
     await sequelize.authenticate();
     console.log('Database connected');
@@ -104,6 +105,10 @@ async function syncDatabase() {
     // Chạy migration cho User email nullable
     console.log('Checking User email nullable...');
     await ensureUserEmailNullable();
+    
+    // Chạy migration cho Reviews images
+    console.log('Checking Reviews images column...');
+    await ensureReviewsImages();
     
     // Chạy migration một lần cho Booking room type structure
     if (process.env.DB_RUN_BOOKING_ROOM_TYPE_MIGRATION === 'true') {

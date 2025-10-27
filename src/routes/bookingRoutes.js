@@ -27,6 +27,9 @@ router.post('/walk-in-checkin', protect, adminOnly, bookingController.createWalk
 
 // ========== CÁC API CHUNG ==========
 
+// Lấy lịch sử đặt phòng của user hiện tại - User
+router.get('/my-bookings', protect, bookingController.getMyBookings);
+
 // Lấy danh sách booking - Admin/Staff
 router.get('/', protect, adminOnly, bookingController.getBookings);
 
