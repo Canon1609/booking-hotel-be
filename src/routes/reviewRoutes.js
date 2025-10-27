@@ -1,7 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const reviewController = require('../controllers/reviewController');
-const { protect } = require('../middlewares/authMiddleware');
+const { protect, adminOnly } = require('../middlewares/authMiddleware');
+
+// Lấy tất cả reviews (Admin only)
+router.get('/admin/all', protect, adminOnly, reviewController.getAllReviews);
 
 // Lấy reviews theo room type (public - không cần auth)
 router.get('/room-type/:room_type_id', reviewController.getReviewsByRoomType);

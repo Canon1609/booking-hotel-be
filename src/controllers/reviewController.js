@@ -298,6 +298,74 @@ exports.getReviewsByRoomType = async (req, res) => {
   }
 };
 
+// Lấy tất cả reviews (Admin only)
+exports.getAllReviews = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, user_id, booking_id, rating } = req.query;
+    const offset = (page - 1) * limit;
+
+    // Build where clause
+    const where = {};
+    if (user_id) where.user_id = user_id;
+    if (booking_id) where.booking_id = booking_id;
+    if (rating) where.rating = parseInt(rating);
+
+    const result = await Review.findAndCountAll({
+      where,
+      include: [
+        { model: User, as: 'user', attributes: ['user_id', 'full_name', 'email', 'phone'] },
+        { 
+          model: Booking, 
+          as: 'booking',
+          attributes: ['booking_id', 'booking_code', 'room_type_id', 'booking_status'],
+          include: [
+            { model: RoomType, as: 'room_type', attributes: ['room_type_name'] },
+            { model: Room, as: 'room', attributes: ['room_num'] }
+          ]
+        }
+      ],
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['created_at', 'DESC']]
+    });
+
+    return res.status(200).json({
+      message: 'Lấy danh sách reviews thành công',
+      reviews: result.rows.map(review => ({
+        review_id: review.review_id,
+        rating: review.rating,
+        comment: review.comment,
+        images: review.images,
+        created_at: review.created_at,
+        updated_at: review.updated_at,
+        user: {
+          user_id: review.user.user_id,
+          full_name: review.user.full_name,
+          email: review.user.email,
+          phone: review.user.phone
+        },
+        booking: {
+          booking_id: review.booking.booking_id,
+          booking_code: review.booking.booking_code,
+          room_type_name: review.booking.room_type?.room_type_name,
+          room_num: review.booking.room?.room_num,
+          booking_status: review.booking.booking_status
+        }
+      })),
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(result.count / limit),
+        totalItems: result.count,
+        pageSize: parseInt(limit)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting all reviews:', error);
+    return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+  }
+};
+
 // Lấy review của user hiện tại
 exports.getMyReviews = async (req, res) => {
   try {

@@ -2111,7 +2111,57 @@ Hệ thống đánh giá cho phép khách hàng:
 - Hiển thị tất cả reviews của loại phòng đó
 - Sử dụng để hiển thị review trên trang chi tiết phòng
 
-### 10.5. Lấy đánh giá của user hiện tại
+### 10.5. Lấy tất cả đánh giá (Admin only)
+- **GET** `http://localhost:5000/api/reviews/admin/all?page=1&limit=10`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Query params:**
+  - `page=1&limit=10` - Phân trang
+  - `user_id=2` - Lọc theo user (optional)
+  - `booking_id=1` - Lọc theo booking (optional)
+  - `rating=5` - Lọc theo rating (optional)
+- **Response:**
+  ```json
+  {
+    "message": "Lấy danh sách reviews thành công",
+    "reviews": [
+      {
+        "review_id": 1,
+        "rating": 5,
+        "comment": "Phòng rất sạch sẽ, dịch vụ tốt!",
+        "images": ["https://s3.amazonaws.com/bucket/reviews/url1.jpg"],
+        "created_at": "2024-01-15T10:30:00.000Z",
+        "updated_at": "2024-01-15T10:30:00.000Z",
+        "user": {
+          "user_id": 2,
+          "full_name": "Nguyễn Văn A",
+          "email": "nguyenvana@email.com",
+          "phone": "0123456789"
+        },
+        "booking": {
+          "booking_id": 1,
+          "booking_code": "A1B2C3",
+          "room_type_name": "Deluxe",
+          "room_num": 101,
+          "booking_status": "checked_out"
+        }
+      }
+    ],
+    "pagination": {
+      "currentPage": 1,
+      "totalPages": 1,
+      "totalItems": 1,
+      "pageSize": 10
+    },
+    "statusCode": 200
+  }
+  ```
+
+**Lưu ý:**
+- Chỉ admin mới có quyền truy cập
+- Có thể filter theo user_id, booking_id, hoặc rating
+- Hiển thị đầy đủ thông tin user và booking
+
+### 10.6. Lấy đánh giá của user hiện tại
 - **GET** `http://localhost:5000/api/reviews/my-reviews?page=1&limit=10`
 - **Headers:** `Authorization: Bearer USER_TOKEN`
 - **Query params:**
@@ -2146,14 +2196,14 @@ Hệ thống đánh giá cho phép khách hàng:
   }
   ```
 
-### 10.6. Email mời đánh giá
+### 10.7. Email mời đánh giá
 Sau khi check-out, user sẽ nhận email tự động với:
 - Lời cảm ơn từ khách sạn
 - Thông tin booking
 - Link đánh giá trải nghiệm
 - Lời mời chia sẻ feedback
 
-### 10.7. Đánh giá trong lịch sử đặt phòng
+### 10.8. Đánh giá trong lịch sử đặt phòng
 Khi gọi API `GET /api/bookings/my-bookings`, mỗi booking sẽ có thêm:
 ```json
 {
