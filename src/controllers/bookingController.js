@@ -885,7 +885,7 @@ exports.findBookingByCode = async (req, res) => {
 exports.checkIn = async (req, res) => {
   try {
     const { booking_code } = req.params;
-    const { room_id } = req.body; // Optional: để gán phòng mới cho walk-in booking
+    const { room_id } = req.body || {}; // Optional: để gán phòng mới cho walk-in booking
 
     const booking = await Booking.findOne({
       where: { booking_code },

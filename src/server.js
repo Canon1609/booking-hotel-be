@@ -32,7 +32,15 @@ async function syncDatabase() {
   try {
     // Import sequelize sau khi database đã được tạo
     const { sequelize } = require('./config/database');
-    const { ensureImagesColumns, ensureServiceFields, ensureUniqueRoomNumberPerHotel, ensureRoomPricesUpdatedAt, ensurePaymentEnums, ensureBookingStatusEnum, ensureBookingRoomType } = require('./utils/db.util');
+    const dbUtil = require('./utils/db.util');
+    const ensureImagesColumns = dbUtil.ensureImagesColumns;
+    const ensureServiceFields = dbUtil.ensureServiceFields;
+    const ensureUniqueRoomNumberPerHotel = dbUtil.ensureUniqueRoomNumberPerHotel;
+    const ensureRoomPricesUpdatedAt = dbUtil.ensureRoomPricesUpdatedAt;
+    const ensurePaymentEnums = dbUtil.ensurePaymentEnums;
+    const ensureBookingStatusEnum = dbUtil.ensureBookingStatusEnum;
+    const ensureBookingRoomType = dbUtil.ensureBookingRoomType;
+    const ensureRoomStatusEnum = dbUtil.ensureRoomStatusEnum;
     
     await sequelize.authenticate();
     console.log('Database connected');
@@ -82,6 +90,10 @@ async function syncDatabase() {
       await ensureBookingStatusEnum();
       console.log('Booking status ENUM migration complete. You can remove DB_RUN_BOOKING_STATUS_MIGRATION flag.');
     }
+    
+    // Chạy migration cho Room status ENUM
+    console.log('Checking Room status ENUM values...');
+    await ensureRoomStatusEnum();
     
     // Chạy migration một lần cho Booking room type structure
     if (process.env.DB_RUN_BOOKING_ROOM_TYPE_MIGRATION === 'true') {

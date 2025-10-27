@@ -96,6 +96,21 @@ async function ensureBookingStatusEnum() {
   }
 }
 
+// Cập nhật room status ENUM với in_use và checked_out
+async function ensureRoomStatusEnum() {
+  try {
+    await sequelize.query(`
+      ALTER TABLE \`rooms\` 
+      MODIFY COLUMN \`status\` 
+      ENUM('available', 'booked', 'in_use', 'checked_out', 'cleaning') 
+      NOT NULL DEFAULT 'available'
+    `);
+    console.log('✅ Updated room status ENUM to include in_use and checked_out');
+  } catch (error) {
+    console.error('Error updating room status ENUM:', error);
+  }
+}
+
 // Thêm room_type_id vào bảng bookings và cập nhật room_id thành nullable
 async function ensureBookingRoomType() {
   try {
@@ -131,7 +146,8 @@ module.exports = {
   ensureUniqueRoomNumberPerHotel,
   ensurePaymentEnums,
   ensureBookingStatusEnum,
-  ensureBookingRoomType
+  ensureBookingRoomType,
+  ensureRoomStatusEnum
 };
 
 // Add updated_at to room_prices if missing
