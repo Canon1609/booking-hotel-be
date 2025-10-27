@@ -371,3 +371,58 @@ exports.changePassword = async (req, res) => {
     res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
   }
 };
+
+// Tạo người dùng nhanh cho walk-in booking (chỉ cần tên và CCCD)
+exports.createQuickUser = async (req, res) => {
+  try {
+    const { full_name, cccd } = req.body;
+
+    // Kiểm tra thông tin bắt buộc
+    if (!full_name || !cccd) {
+      return res.status(400).json({ 
+        message: 'Vui lòng nhập đầy đủ tên và số CCCD' 
+      });
+    }
+
+    // Kiểm tra CCCD đã tồn tại chưa
+    const existingUser = await User.findOne({ where: { cccd } });
+    if (existingUser) {
+      return res.status(200).json({
+        message: 'Tìm thấy người dùng đã tồn tại',
+        user: {
+          user_id: existingUser.user_id,
+          full_name: existingUser.full_name,
+          cccd: existingUser.cccd,
+          is_existing: true
+        }
+      });
+    }
+
+    // Tạo user mới với role customer và các field khác null
+    const user = await User.create({
+      full_name,
+      cccd,
+      email: null,
+      phone: null,
+      password_hashed: null,
+      role: 'customer',
+      is_verified: false,
+      date_of_birth: null
+    });
+
+    return res.status(201).json({
+      message: 'Tạo người dùng thành công',
+      user: {
+        user_id: user.user_id,
+        full_name: user.full_name,
+        cccd: user.cccd,
+        role: user.role,
+        is_existing: false
+      }
+    });
+
+  } catch (error) {
+    console.error('Error creating quick user:', error);
+    return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+  }
+};

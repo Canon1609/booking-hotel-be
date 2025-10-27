@@ -10,7 +10,8 @@ const {
   updateUser,
   deleteUserById,
   searchUserByEmail,
-  changePassword
+  changePassword,
+  createQuickUser
 } = require('../controllers/userController');
 const { protect, adminOnly } = require('../middlewares/authMiddleware');
 
@@ -47,5 +48,8 @@ router.delete('/:id', protect, adminOnly, deleteUserById);
 
 // Tìm kiếm người dùng theo email
 router.get('/search/email', protect, adminOnly, searchUserByEmail);
+
+// Tạo người dùng nhanh cho walk-in booking (Admin only)
+router.post('/quick-create', protect, adminOnly, createQuickUser);
 
 module.exports = router;

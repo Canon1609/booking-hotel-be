@@ -16,12 +16,17 @@ const User = sequelize.define('User', {
   },
   email: {
     type: DataTypes.STRING(255),
-    allowNull: false,
+    allowNull: true,
     unique: true
   },
   phone: {
     type: DataTypes.STRING(15),
     allowNull: true
+  },
+  cccd: {
+    type: DataTypes.STRING(20),
+    allowNull: true,
+    comment: 'Số CCCD/CMND'
   },
   password_hashed: {
     type: DataTypes.STRING,

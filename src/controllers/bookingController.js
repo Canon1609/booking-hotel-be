@@ -1085,6 +1085,7 @@ exports.checkOut = async (req, res) => {
 
     booking.check_out_time = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
     booking.booking_status = 'checked_out';
+    booking.payment_status = 'paid'; // Cập nhật payment_status thành paid khi check-out
     await booking.save();
 
     // Cập nhật trạng thái phòng thành 'checked_out'
@@ -1095,7 +1096,8 @@ exports.checkOut = async (req, res) => {
 
     return res.status(200).json({ 
       message: 'Check-out thành công',
-      check_out_time: booking.check_out_time
+      check_out_time: booking.check_out_time,
+      payment_status: booking.payment_status
     });
 
   } catch (error) {
@@ -1373,6 +1375,169 @@ exports.updateRoomStatus = async (req, res) => {
 
   } catch (error) {
     console.error('Error updating room status:', error);
+    return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+  }
+};
+
+// Tạo walk-in booking và check-in luôn
+exports.createWalkInAndCheckIn = async (req, res) => {
+  try {
+    const { 
+      user_id,
+      room_id, 
+      nights: nightsCount = 1, // Số đêm ở (mặc định 1 đêm)
+      num_person = 1,
+      note = '',
+      services = []
+    } = req.body;
+
+    // Kiểm tra thông tin đầu vào
+    if (!user_id || !room_id) {
+      return res.status(400).json({ 
+        message: 'Vui lòng nhập đầy đủ thông tin: user_id, room_id' 
+      });
+    }
+
+    // Check-in date là ngày hiện tại
+    const checkInDate = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD');
+    // Check-out date là ngày hiện tại + số đêm
+    const checkOutDate = moment().tz('Asia/Ho_Chi_Minh').add(nightsCount, 'days').format('YYYY-MM-DD');
+    
+    const checkIn = moment(checkInDate).tz('Asia/Ho_Chi_Minh');
+    const checkOut = moment(checkOutDate).tz('Asia/Ho_Chi_Minh');
+
+    // Kiểm tra phòng có tồn tại không
+    const room = await Room.findOne({
+      where: { room_id },
+      include: [{ model: RoomType, as: 'room_type' }]
+    });
+
+    if (!room) {
+      return res.status(404).json({ message: 'Không tìm thấy phòng' });
+    }
+
+    // Kiểm tra phòng có available không
+    if (room.status !== 'available') {
+      return res.status(400).json({ 
+        message: `Phòng không sẵn sàng, trạng thái hiện tại: ${room.status}`,
+        current_status: room.status,
+        required_status: 'available'
+      });
+    }
+
+    // Kiểm tra loại phòng
+    const roomType = await RoomType.findByPk(room.room_type_id);
+    if (!roomType) {
+      return res.status(404).json({ message: 'Không tìm thấy loại phòng' });
+    }
+
+    // Kiểm tra phòng có bị conflict không
+    const conflictingBooking = await Booking.findOne({
+      where: {
+        room_id,
+        booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
+        [Op.or]: [
+          {
+            check_in_date: { [Op.lte]: checkOut.format('YYYY-MM-DD') },
+            check_out_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
+          }
+        ]
+      }
+    });
+
+    if (conflictingBooking) {
+      return res.status(400).json({ message: 'Phòng đã được đặt trong khoảng thời gian này' });
+    }
+
+    // Lấy giá phòng
+    const roomPrice = await RoomPrice.findOne({
+      where: {
+        room_type_id: room.room_type_id,
+        start_date: { [Op.lte]: checkIn.format('YYYY-MM-DD') },
+        end_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
+      },
+      order: [['start_date', 'ASC']]
+    });
+
+    if (!roomPrice) {
+      return res.status(400).json({ message: 'Không tìm thấy giá phòng cho ngày này' });
+    }
+
+    // Tính tổng giá phòng
+    const roomTotalPrice = roomPrice.price_per_night * nightsCount;
+
+    // Tạo booking code
+    const bookingCode = payOSService.generateBookingCode();
+
+    // Tạo booking với status confirmed và payment_status pending
+    const booking = await Booking.create({
+      user_id,
+      room_type_id: room.room_type_id,
+      room_id: room_id,
+      check_in_date: checkInDate,
+      check_out_date: checkOutDate,
+      num_person,
+      total_price: roomTotalPrice,
+      final_price: roomTotalPrice,
+      booking_status: 'confirmed',
+      payment_status: 'pending', // Chưa thanh toán
+      booking_type: 'walkin',
+      booking_code: bookingCode,
+      note,
+      check_in_time: moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss') // Check-in luôn
+    });
+
+    // Cập nhật trạng thái booking thành checked_in
+    booking.booking_status = 'checked_in';
+    await booking.save();
+
+    // Cập nhật trạng thái phòng từ available -> in_use (gán phòng và check-in luôn)
+    await Room.update(
+      { status: 'in_use' },
+      { where: { room_id } }
+    );
+
+    // Tạo booking services nếu có
+    if (services && services.length > 0) {
+      for (const service of services) {
+        const serviceData = await Service.findByPk(service.service_id);
+        if (serviceData) {
+          const serviceTotal = serviceData.price * service.quantity;
+
+          await BookingService.create({
+            booking_id: booking.booking_id,
+            service_id: service.service_id,
+            quantity: service.quantity,
+            unit_price: serviceData.price,
+            total_price: serviceTotal,
+            payment_type: service.payment_type || 'postpaid',
+            status: 'active'
+          });
+        }
+      }
+    }
+
+    return res.status(201).json({
+      message: 'Tạo walk-in booking và check-in thành công',
+      booking: {
+        booking_id: booking.booking_id,
+        booking_code: booking.booking_code,
+        room_type: roomType.room_type_name,
+        room_id: room.room_id,
+        room_num: room.room_num,
+        check_in_date: booking.check_in_date,
+        check_out_date: booking.check_out_date,
+        nights: nightsCount, // Số đêm ở
+        num_person: booking.num_person,
+        total_price: booking.total_price,
+        booking_status: booking.booking_status,
+        payment_status: booking.payment_status,
+        check_in_time: booking.check_in_time
+      }
+    });
+
+  } catch (error) {
+    console.error('Error creating walk-in and check-in:', error);
     return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
   }
 };

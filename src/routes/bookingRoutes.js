@@ -22,6 +22,9 @@ router.post('/payment-webhook', bookingController.handlePaymentWebhook);
 // 2.1. Tạo booking trực tiếp - Admin/Staff
 router.post('/walk-in', protect, adminOnly, bookingController.createWalkInBooking);
 
+// 2.2. Tạo walk-in booking và check-in luôn - Admin/Staff
+router.post('/walk-in-checkin', protect, adminOnly, bookingController.createWalkInAndCheckIn);
+
 // ========== CÁC API CHUNG ==========
 
 // Lấy danh sách booking - Admin/Staff

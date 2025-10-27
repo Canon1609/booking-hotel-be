@@ -111,6 +111,46 @@ async function ensureRoomStatusEnum() {
   }
 }
 
+// Thêm cột cccd vào bảng users nếu chưa có
+async function ensureUserCccdColumn() {
+  try {
+    const hasCccdColumn = await columnExists('users', 'cccd');
+    if (!hasCccdColumn) {
+      await sequelize.query(`
+        ALTER TABLE \`users\` 
+        ADD COLUMN \`cccd\` VARCHAR(20) NULL COMMENT 'Số CCCD/CMND'
+      `);
+      console.log('✅ Added cccd column to users table');
+    }
+  } catch (error) {
+    console.error('Error adding cccd column to users:', error);
+  }
+}
+
+// Cập nhật cột email để cho phép NULL
+async function ensureUserEmailNullable() {
+  try {
+    // Kiểm tra xem email có phải là NOT NULL không
+    const [results] = await sequelize.query(`
+      SELECT IS_NULLABLE 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = ? 
+      AND TABLE_NAME = 'users' 
+      AND COLUMN_NAME = 'email'
+    `, { replacements: [process.env.DB_NAME || 'hotel_booking'] });
+    
+    if (results.length > 0 && results[0].IS_NULLABLE === 'NO') {
+      await sequelize.query(`
+        ALTER TABLE \`users\` 
+        MODIFY COLUMN \`email\` VARCHAR(255) NULL
+      `);
+      console.log('✅ Updated email column to allow NULL');
+    }
+  } catch (error) {
+    console.error('Error updating email column:', error);
+  }
+}
+
 // Thêm room_type_id vào bảng bookings và cập nhật room_id thành nullable
 async function ensureBookingRoomType() {
   try {
@@ -147,7 +187,9 @@ module.exports = {
   ensurePaymentEnums,
   ensureBookingStatusEnum,
   ensureBookingRoomType,
-  ensureRoomStatusEnum
+  ensureRoomStatusEnum,
+  ensureUserCccdColumn,
+  ensureUserEmailNullable
 };
 
 // Add updated_at to room_prices if missing

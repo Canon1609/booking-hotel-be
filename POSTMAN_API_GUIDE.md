@@ -1194,7 +1194,7 @@ INSERT INTO booking_services (
 ### 9.2. LUỒNG 2: ĐẶT PHÒNG TRỰC TIẾP (WALK-IN)
 
 #### 9.2.1. Tạo booking trực tiếp
-- **POST** `http://localhost:5000/api/bookings/walk-in`
+<!-- - **POST** `http://localhost:5000/api/bookings/walk-in`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Body:**
   ```json
@@ -1230,8 +1230,103 @@ INSERT INTO booking_services (
       "available_rooms_remaining": 1
     },
     "statusCode": 201
+  } -->
+  ```
+
+#### 9.2.2. Tạo user nhanh cho walk-in booking
+- **POST** `http://localhost:5000/api/users/quick-create`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Body:**
+  ```json
+  {
+    "full_name": "Nguyễn Văn A",
+    "cccd": "012345678901"
   }
   ```
+- **Response (User mới):**
+  ```json
+  {
+    "message": "Tạo người dùng thành công",
+    "user": {
+      "user_id": 10,
+      "full_name": "Nguyễn Văn A",
+      "cccd": "012345678901",
+      "role": "customer",
+      "is_existing": false
+    },
+    "statusCode": 201
+  }
+  ```
+- **Response (User đã tồn tại):**
+  ```json
+  {
+    "message": "Tìm thấy người dùng đã tồn tại",
+    "user": {
+      "user_id": 5,
+      "full_name": "Nguyễn Văn A",
+      "cccd": "012345678901",
+      "is_existing": true
+    },
+    "statusCode": 200
+  }
+  ```
+- **Lưu ý:**
+  - Chỉ cần **tên** và **CCCD** (bắt buộc)
+  - Kiểm tra trùng CCCD, nếu đã có thì trả về user hiện tại
+  - Email, phone, password để NULL (không tạo tạm thời)
+
+#### 9.2.3. Tạo walk-in booking và check-in luôn
+- **POST** `http://localhost:5000/api/bookings/walk-in-checkin`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Body:**
+  ```json
+  {
+    "user_id": 10,
+    "room_id": 5,
+    "nights": 1,
+    "num_person": 2,
+    "note": "Khách VIP",
+    "services": [
+      {
+        "service_id": 1,
+        "quantity": 1,
+        "payment_type": "postpaid"
+      }
+    ]
+  }
+  ```
+- **Lưu ý:**
+  - `check_in_date` = ngày hiện tại (tự động)
+  - `check_out_date` = ngày hiện tại + số đêm (tự động)
+  - `nights`: Số đêm ở (mặc định 1 đêm)
+  - Không cần nhập ngày, hệ thống tự tính
+- **Response:**
+  ```json
+  {
+    "message": "Tạo walk-in booking và check-in thành công",
+    "booking": {
+      "booking_id": 5,
+      "booking_code": "A1B2C3",
+      "room_type": "Deluxe",
+      "room_id": 5,
+      "room_num": 101,
+      "check_in_date": "2024-01-15",
+      "check_out_date": "2024-01-17",
+      "num_person": 2,
+      "total_price": 2000000,
+      "booking_status": "checked_in",
+      "payment_status": "pending",
+      "check_in_time": "2024-01-15 14:30:00"
+    }
+  }
+  ```
+- **Lưu ý quan trọng:**
+  - Phòng phải ở trạng thái `available`
+  - Booking sẽ tự động check-in và có `check_in_time`
+  - Booking status: `checked_in` (khách đang ở khách sạn)
+  - Payment status: `pending` (chưa thanh toán)
+  - Phòng chuyển từ `available` → `in_use` ngay lập tức
+  - Khi check-out: `payment_status` → `paid`
 
 ### 9.3. CÁC API CHUNG
 
@@ -1536,23 +1631,36 @@ cancelled  cancelled   (không thể hủy)
 Khách chọn loại phòng → Tạo temp booking → Thanh toán → Webhook → Gán phòng cụ thể → Check-in
 ```
 
-**2. Đặt phòng walk-in:**
+**2. Đặt phòng walk-in truyền thống:**
 ```
 Admin tạo booking → Chọn loại phòng → Thanh toán ngay → Gán phòng cụ thể → Check-in
 ```
 
-**3. Cấu trúc database:**
+**3. Đặt phòng walk-in nhanh (mới):**
+```
+Tạo user nhanh (chỉ cần tên + phone) → Chọn phòng available → Tạo booking và check-in luôn
+→ Phòng: available → in_use ngay
+→ Booking: checked_in + payment_status: pending (chưa thanh toán)
+→ Check-out: payment_status → paid + phòng: in_use → checked_out
+```
+
+**4. Cấu trúc database:**
 - `bookings.room_type_id` (NOT NULL) - Loại phòng khách đặt
 - `bookings.room_id` (NULL) - Phòng cụ thể (chỉ khi đã gán)
 - `bookings.room_assigned_at` (NULL) - Thời gian gán phòng
 
-**4. Trạng thái booking:**
+**5. Trạng thái booking:**
 - `pending` → `confirmed` → `checked_in` → `checked_out`
 - Khi `confirmed`: Phòng đã được gán, sẵn sàng check-in
 - Khi `checked_in`: Khách đã nhận phòng
 - Khi `checked_out`: Hoàn tất quá trình
 
-**5. Trạng thái phòng tự động thay đổi:**
+**6. Payment status:**
+- `pending`: Chưa thanh toán (walk-in booking)
+- `paid`: Đã thanh toán (online booking hoặc sau khi check-out)
+- Check-out tự động chuyển `pending` → `paid` cho walk-in booking
+
+**7. Trạng thái phòng tự động thay đổi:**
 - Khi đặt phòng thành công: `available` → `booked`
 - Khi check-in: `booked` → `in_use`
 - Khi check-out: `in_use` → `checked_out`
@@ -1567,10 +1675,13 @@ Admin tạo booking → Chọn loại phòng → Thanh toán ngay → Gán phòn
 4. **ENUM booking_status:** Thêm `checked_in` và `checked_out`
 5. **Database migration:** Thêm `room_type_id`, `room_assigned_at` vào bảng bookings
 6. **ENUM room status:** Thêm `in_use`, `checked_out` để quản lý trạng thái phòng
+7. **Walk-in nhanh:** Tạo user + booking + check-in một lần, payment_status pending
+8. **Check-out tự động:** Tự động chuyển payment_status từ `pending` → `paid`
 
 **🔄 Luồng hoạt động mới:**
 - **Online:** Chọn loại phòng → Temp booking → Thanh toán → Webhook → Gán phòng → Check-in
-- **Walk-in:** Admin tạo booking → Chọn loại phòng → Thanh toán → Gán phòng khi check-in → Check-in
+- **Walk-in truyền thống:** Admin tạo booking → Chọn loại phòng → Thanh toán → Gán phòng khi check-in → Check-in
+- **Walk-in nhanh:** Tạo user nhanh → Chọn phòng available → Tạo booking + check-in luôn → Check-out (payment_status: pending → paid)
 - **Trạng thái phòng tự động:** `available` → `booked` → `in_use` → `checked_out` → `cleaning` → `available`
 
 **📊 Cấu trúc database:**
@@ -1580,8 +1691,11 @@ Admin tạo booking → Chọn loại phòng → Thanh toán ngay → Gán phòn
 - `rooms.status` - Trạng thái phòng: available, booked, in_use, checked_out, cleaning
 
 **🔄 API mới:**
+- **POST** `/api/users/quick-create` - Tạo user nhanh cho walk-in (chỉ cần tên + CCCD)
+- **POST** `/api/bookings/walk-in-checkin` - Tạo walk-in booking và check-in luôn
 - **PUT** `/api/bookings/room/:room_id/status` - Admin cập nhật trạng thái phòng từ `checked_out` → `cleaning` → `available`
 - Check-in hỗ trợ gán phòng: Có thể cung cấp `room_id` trong body khi check-in walk-in booking
+- Check-out tự động chuyển `payment_status` từ `pending` → `paid` cho walk-in booking
 
 #### 9.3.10. Hủy booking
 - **POST** `http://localhost:5000/api/bookings/1/cancel`
@@ -1752,6 +1866,46 @@ Admin tạo booking → Chọn loại phòng → Thanh toán ngay → Gán phòn
 3. **Check-in:** `POST /api/bookings/1/check-in`
 4. **Check-out:** `POST /api/bookings/1/check-out`
 5. **Tạo hóa đơn:** `GET /api/bookings/1/invoice/pdf`
+
+#### Test Case 2.1: Đặt phòng walk-in nhanh (MỚI)
+1. **Đăng nhập admin:** `POST /api/auth/login`
+2. **Tạo user nhanh:** `POST /api/users/quick-create`
+   ```json
+   {
+     "full_name": "Nguyễn Văn A",
+     "cccd": "012345678901"
+   }
+   ```
+   → Lưu `user_id`
+
+3. **Tạo booking và check-in luôn:** `POST /api/bookings/walk-in-checkin`
+   ```json
+   {
+     "user_id": "{user_id}",
+     "room_id": 5,
+     "nights": 1,
+     "num_person": 2,
+     "note": "Khách VIP"
+   }
+   ```
+   → Booking status: `checked_in`
+   → Payment status: `pending` (chưa thanh toán)
+   → Phòng: `in_use`
+   → Lưu `booking_code`
+
+4. **Check-out:** `POST /api/bookings/{booking_code}/check-out`
+   → Payment status: `paid` (tự động chuyển)
+   → Phòng: `checked_out`
+
+5. **Admin cập nhật phòng:** `PUT /api/bookings/room/5/status`
+   ```json
+   { "status": "cleaning" }
+   ```
+   
+6. **Phòng sẵn sàng:** `PUT /api/bookings/room/5/status`
+   ```json
+   { "status": "available" }
+   ```
 
 #### Test Case 3: Email nhắc nhở
 1. **Tạo booking với check-in ngày mai**
