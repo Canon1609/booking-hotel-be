@@ -56,7 +56,7 @@ const Booking = sequelize.define('Booking', {
     allowNull: true
   },
   payment_status: {
-    type: DataTypes.ENUM('pending', 'paid', 'refunded'),
+    type: DataTypes.ENUM('pending', 'paid', 'refunded', 'partial_refunded'),
     allowNull: false,
     defaultValue: 'pending'
   },

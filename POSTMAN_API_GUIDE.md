@@ -1752,7 +1752,7 @@ Tạo user nhanh (chỉ cần tên + phone) → Chọn phòng available → Tạ
 - Check-in hỗ trợ gán phòng: Có thể cung cấp `room_id` trong body khi check-in walk-in booking
 - Check-out tự động chuyển `payment_status` từ `pending` → `paid` cho walk-in booking
 
-#### 9.3.12. Hủy booking
+#### 9.3.12. Hủy booking (User tự hủy - có chính sách hoàn tiền)
 - **POST** `http://localhost:5000/api/bookings/1/cancel`
 - **Headers:** `Authorization: Bearer USER_TOKEN`
 - **Body:**
@@ -1761,13 +1761,157 @@ Tạo user nhanh (chỉ cần tên + phone) → Chọn phòng available → Tạ
     "reason": "Thay đổi kế hoạch"
   }
   ```
-- **Response:**
+
+**Chính sách hủy phòng:**
+
+**Trường hợp 1: Hủy trước 48 giờ check-in (14:00)**
+- **Hoàn tiền: 70%** tổng số tiền
+- **Phí giữ lại: 30%** - Khách sạn giữ lại làm phí
+
+**Response:**
+```json
+{
+  "message": "Hủy booking thành công",
+  "refund_amount": 700000,
+  "cancellation_policy": "Hủy trước 48 giờ - hoàn 70%, phí 30%",
+  "hours_until_checkin": 72
+}
+```
+
+**Trường hợp 2: Hủy trong vòng 48 giờ hoặc không đến**
+- **Hoàn tiền: 0%** - Mất toàn bộ số tiền
+
+**Response:**
+```json
+{
+  "message": "Hủy booking thành công",
+  "refund_amount": 0,
+  "cancellation_policy": "Hủy trong vòng 48 giờ - mất 100%",
+  "hours_until_checkin": 24
+}
+```
+
+**Điều kiện:**
+- User chỉ có thể hủy booking của chính mình (trừ khi là admin)
+- Không thể hủy booking đã checked_in hoặc checked_out
+- Booking phải có payment_status = 'paid' để áp dụng chính sách
+- Phòng sẽ được giải phóng khi hủy
+
+**Lưu ý về thời gian:**
+- Check-in time mặc định: **14:00 (2:00 PM)**
+- **Trước 48h:** Từ hơn 48 giờ trước 14:00 ngày check-in
+- **Trong 48h:** Từ 48 giờ trước 14:00 ngày check-in trở đi
+- **Ví dụ:** Check-in lúc 14:00 ngày 29, phải hủy trước 14:00 ngày 27
+
+#### 9.3.12.1. Admin hủy booking (Không hoàn tiền tự động)
+- **POST** `http://localhost:5000/api/bookings/1/cancel-admin`
+- **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Body:**
   ```json
   {
-    "message": "Hủy booking thành công",
-    "statusCode": 200
+    "reason": "Khách đổi phòng - admin xử lý thủ công",
+    "refund_manually": true
   }
   ```
+
+**Response:**
+```json
+{
+  "message": "Admin hủy booking thành công",
+  "note": "Đã đánh dấu là đã hoàn tiền thủ công"
+}
+```
+
+**Điều kiện:**
+- Chỉ admin mới có quyền sử dụng endpoint này
+- Có thể hủy bất kỳ booking nào (trừ checked_out)
+- Không tự động hoàn tiền - xử lý thủ công
+- `refund_manually: true` - Admin đánh dấu đã hoàn tiền thủ công
+- `refund_manually: false` - Không hoàn tiền, xử lý thủ công
+
+**Use case:**
+- Khách liên hệ muốn đổi phòng (ngày, loại phòng)
+- Admin hủy booking hiện tại (không hoàn tiền) và đặt booking mới
+- Admin tự xử lý hoàn tiền thủ công
+
+#### 9.3.12.2. Ví dụ test hủy booking
+
+**Test Case 1: User hủy trước 48h**
+```bash
+# 1. Tạo booking với check_in_date = 3 ngày nữa
+POST /api/bookings/temp-booking
+{
+  "room_type_id": 1,
+  "check_in_date": "2025-01-30",  // 3 ngày nữa
+  "check_out_date": "2025-02-01"
+}
+
+# 2. Thanh toán thành công
+POST /api/bookings/payment-webhook
+{
+  "orderCode": "...",
+  "status": "PAID"
+}
+
+# 3. Hủy booking ngay (trước 48h)
+POST /api/bookings/1/cancel
+Headers: Authorization: Bearer USER_TOKEN
+{
+  "reason": "Thay đổi kế hoạch"
+}
+
+# Response: refund_amount = 700000 (70%)
+```
+
+**Test Case 2: User hủy trong 48h**
+```bash
+# 1. Tạo booking với check_in_date = 1 ngày nữa
+POST /api/bookings/temp-booking
+{
+  "room_type_id": 1,
+  "check_in_date": "2025-01-22",  // 1 ngày nữa
+  "check_out_date": "2025-01-24"
+}
+
+# 2. Thanh toán thành công
+
+# 3. Hủy booking trong 48h
+POST /api/bookings/2/cancel
+Headers: Authorization: Bearer USER_TOKEN
+{
+  "reason": "Không thể đi được"
+}
+
+# Response: refund_amount = 0 (100% mất)
+```
+
+**Test Case 3: Admin hủy booking (không hoàn tiền)**
+```bash
+# Admin hủy booking cho khách đổi phòng
+POST /api/bookings/1/cancel-admin
+Headers: Authorization: Bearer ADMIN_TOKEN
+{
+  "reason": "Khách đổi phòng - đã xử lý thủ công",
+  "refund_manually": true
+}
+
+# Response: Không hoàn tiền tự động
+```
+
+**Test Case 4: User không thể hủy booking của người khác**
+```bash
+# User A cố gắng hủy booking của User B
+POST /api/bookings/2/cancel
+Headers: Authorization: Bearer USER_A_TOKEN
+{
+  "reason": "..."
+}
+
+# Response: 403 Forbidden
+{
+  "message": "Bạn không có quyền hủy booking này"
+}
+```
 
 #### 9.3.13. Tạo hóa đơn PDF
 - **GET** `http://localhost:5000/api/bookings/1/invoice/pdf`

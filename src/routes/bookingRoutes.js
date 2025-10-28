@@ -51,6 +51,9 @@ router.post('/:booking_code/check-out', protect, adminOnly, bookingController.ch
 // Hủy booking - User (chỉ booking của mình) hoặc Admin
 router.post('/:id/cancel', protect, bookingController.cancelBooking);
 
+// Admin: Hủy booking không hoàn tiền (xử lý thủ công) - Admin only
+router.post('/:id/cancel-admin', protect, adminOnly, bookingController.cancelBookingAdmin);
+
 // Tạo và tải hóa đơn PDF - Admin/Staff
 router.get('/:id/invoice/pdf', protect, adminOnly, bookingController.generateInvoicePDF);
 

@@ -886,7 +886,8 @@ exports.getBookingById = async (req, res) => {
         { model: User, as: 'user', attributes: ['user_id', 'full_name', 'email', 'phone'] },
         { model: Room, as: 'room', include: [{ model: RoomType, as: 'room_type' }] },
         { model: BookingService, as: 'booking_services', include: [{ model: Service, as: 'service' }] },
-        { model: Promotion, as: 'promotion' }
+        { model: Promotion, as: 'promotion' },
+        { model: Payment, as: 'payments', order: [['created_at', 'DESC']] }
       ]
     });
 
@@ -894,7 +895,39 @@ exports.getBookingById = async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy booking' });
     }
 
-    return res.status(200).json({ booking });
+    // Format payments để dễ đọc
+    const formattedPayments = booking.payments?.map(payment => ({
+      payment_id: payment.payment_id,
+      amount: parseFloat(payment.amount),
+      method: payment.method,
+      status: payment.status,
+      transaction_id: payment.transaction_id,
+      payment_date: payment.payment_date,
+      created_at: payment.created_at,
+      is_refund: parseFloat(payment.amount) < 0  // Đánh dấu là refund nếu amount < 0
+    })) || [];
+
+    // Tính toán tổng tiền đã thanh toán và đã hoàn
+    const totalPaid = formattedPayments
+      .filter(p => p.amount > 0)
+      .reduce((sum, p) => sum + p.amount, 0);
+    
+    const totalRefunded = formattedPayments
+      .filter(p => p.amount < 0)
+      .reduce((sum, p) => sum + Math.abs(p.amount), 0);
+
+    return res.status(200).json({ 
+      booking: {
+        ...booking.toJSON(),
+        payments: formattedPayments,
+        payment_summary: {
+          total_paid: totalPaid,
+          total_refunded: totalRefunded,
+          net_amount: totalPaid - totalRefunded,
+          has_payments: formattedPayments.length > 0
+        }
+      }
+    });
 
   } catch (error) {
     console.error('Error getting booking by ID:', error);
@@ -1192,33 +1225,195 @@ exports.checkOut = async (req, res) => {
   }
 };
 
-// Hủy booking
+// Hủy booking (User tự hủy - áp dụng chính sách hủy)
 exports.cancelBooking = async (req, res) => {
   try {
     const { id } = req.params;
     const { reason = '' } = req.body;
+    const userId = req.user.id;
+    const isAdmin = req.user.role === 'admin';
 
-    const booking = await Booking.findByPk(id);
+    const booking = await Booking.findByPk(id, {
+      include: [
+        { model: Room, as: 'room' },
+        { model: RoomType, as: 'room_type' }
+      ]
+    });
+
     if (!booking) {
       return res.status(404).json({ message: 'Không tìm thấy booking' });
     }
 
-    if (booking.booking_status === 'cancelled') {
-      return res.status(400).json({ message: 'Booking đã bị hủy' });
+    // Kiểm tra quyền: User chỉ có thể hủy booking của chính mình
+    if (!isAdmin && booking.user_id !== userId) {
+      return res.status(403).json({ message: 'Bạn không có quyền hủy booking này' });
     }
 
-    if (booking.booking_status === 'completed') {
-      return res.status(400).json({ message: 'Không thể hủy booking đã hoàn thành' });
+    // Kiểm tra trạng thái booking
+    if (['cancelled', 'checked_in', 'checked_out'].includes(booking.booking_status)) {
+      return res.status(400).json({ 
+        message: `Không thể hủy booking ở trạng thái: ${booking.booking_status}` 
+      });
     }
 
-    booking.booking_status = 'cancelled';
-    booking.note = booking.note ? `${booking.note}\nHủy: ${reason}` : `Hủy: ${reason}`;
-    await booking.save();
+    // Nếu booking chưa thanh toán hoặc đã hoàn tiền
+    if (booking.payment_status !== 'paid') {
+      booking.booking_status = 'cancelled';
+      booking.note = booking.note ? `${booking.note}\nHủy: ${reason}` : `Hủy: ${reason}`;
+      await booking.save();
 
-    return res.status(200).json({ message: 'Hủy booking thành công' });
+      return res.status(200).json({ 
+        message: 'Hủy booking thành công',
+        refund_amount: 0,
+        cancellation_policy: 'Không áp dụng vì chưa thanh toán'
+      });
+    }
+
+    // Tính toán thời gian còn lại trước khi check-in (14:00)
+    const now = moment().tz('Asia/Ho_Chi_Minh');
+    const checkInDateTime = moment(booking.check_in_date).tz('Asia/Ho_Chi_Minh').set({
+      hour: 14,
+      minute: 0,
+      second: 0
+    });
+
+    // Kiểm tra xem có phải trước 48 giờ không
+    const hoursUntilCheckIn = checkInDateTime.diff(now, 'hours');
+    const isBefore48Hours = hoursUntilCheckIn > 48;
+
+    let refundAmount = 0;
+    let cancellationPolicy = '';
+
+    if (isBefore48Hours) {
+      // Hủy trước 48 giờ: hoàn 70%, giữ 30%
+      refundAmount = parseFloat(booking.total_price) * 0.7;
+      cancellationPolicy = 'Hủy trước 48 giờ - hoàn 70%, phí 30%';
+      booking.payment_status = 'partial_refunded';
+      
+      // Tạo payment record cho refund
+      const refundPayment = await Payment.create({
+        booking_id: booking.booking_id,
+        amount: -refundAmount, // Số âm để biểu thị hoàn tiền
+        method: booking.booking_type === 'online' ? 'payos' : 'cash',
+        status: 'completed',
+        transaction_id: `REFUND-${booking.booking_code}-${Date.now()}`,
+        payment_date: moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss'),
+        created_at: moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss')
+      });
+
+      // Cập nhật trạng thái booking
+      booking.booking_status = 'cancelled';
+      booking.note = booking.note ? `${booking.note}\nHủy: ${reason}` : `Hủy: ${reason}`;
+      await booking.save();
+
+      // Giải phóng phòng nếu đã được gán
+      if (booking.room_id) {
+        await Room.update(
+          { status: 'available' },
+          { where: { room_id: booking.room_id } }
+        );
+      }
+
+      return res.status(200).json({ 
+        message: 'Hủy booking thành công',
+        refund_amount: refundAmount,
+        cancellation_policy: cancellationPolicy,
+        hours_until_checkin: hoursUntilCheckIn,
+        booking_status: 'cancelled',
+        payment_status: 'partial_refunded',
+        refund_payment: {
+          payment_id: refundPayment.payment_id,
+          amount: parseFloat(refundPayment.amount),
+          transaction_id: refundPayment.transaction_id,
+          payment_date: refundPayment.payment_date
+        },
+        note: 'Đã ghi nhận hoàn tiền trong hệ thống. Tiền sẽ được xử lý theo phương thức thanh toán ban đầu (PayOS hoặc tiền mặt).'
+      });
+    } else {
+      // Hủy trong vòng 48 giờ hoặc không đến: mất 100%
+      refundAmount = 0;
+      cancellationPolicy = 'Hủy trong vòng 48 giờ - mất 100%';
+      booking.payment_status = 'paid'; // Giữ nguyên, không hoàn tiền
+
+      // Cập nhật trạng thái booking
+      booking.booking_status = 'cancelled';
+      booking.note = booking.note ? `${booking.note}\nHủy: ${reason}` : `Hủy: ${reason}`;
+      await booking.save();
+
+      // Giải phóng phòng nếu đã được gán
+      if (booking.room_id) {
+        await Room.update(
+          { status: 'available' },
+          { where: { room_id: booking.room_id } }
+        );
+      }
+
+      return res.status(200).json({ 
+        message: 'Hủy booking thành công',
+        refund_amount: refundAmount,
+        cancellation_policy: cancellationPolicy,
+        hours_until_checkin: hoursUntilCheckIn,
+        booking_status: 'cancelled',
+        payment_status: 'paid',
+        note: 'Không hoàn tiền theo chính sách hủy (hủy trong vòng 48h hoặc no-show).'
+      });
+    }
 
   } catch (error) {
     console.error('Error cancelling booking:', error);
+    return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+  }
+};
+
+// Admin: Hủy booking không hoàn tiền (xử lý thủ công)
+exports.cancelBookingAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason = '', refund_manually = false } = req.body;
+
+    const booking = await Booking.findByPk(id, {
+      include: [
+        { model: Room, as: 'room' },
+        { model: RoomType, as: 'room_type' }
+      ]
+    });
+
+    if (!booking) {
+      return res.status(404).json({ message: 'Không tìm thấy booking' });
+    }
+
+    if (['cancelled', 'checked_out'].includes(booking.booking_status)) {
+      return res.status(400).json({ 
+        message: `Không thể hủy booking ở trạng thái: ${booking.booking_status}` 
+      });
+    }
+
+    // Admin hủy không hoàn tiền mặc định (xử lý thủ công)
+    booking.booking_status = 'cancelled';
+    booking.note = booking.note 
+      ? `${booking.note}\nAdmin hủy: ${reason}${refund_manually ? ' (Đã hoàn tiền thủ công)' : ' (Không hoàn tiền - xử lý thủ công)'}` 
+      : `Admin hủy: ${reason}${refund_manually ? ' (Đã hoàn tiền thủ công)' : ' (Không hoàn tiền - xử lý thủ công)'}`;
+    
+    // Đánh dấu là admin đã xử lý thủ công (có thể đã hoàn tiền trước đó)
+    await booking.save();
+
+    // Giải phóng phòng
+    if (booking.room_id) {
+      await Room.update(
+        { status: 'available' },
+        { where: { room_id: booking.room_id } }
+      );
+    }
+
+    return res.status(200).json({ 
+      message: 'Admin hủy booking thành công',
+      note: refund_manually 
+        ? 'Đã đánh dấu là đã hoàn tiền thủ công' 
+        : 'Không hoàn tiền - xử lý thủ công'
+    });
+
+  } catch (error) {
+    console.error('Error cancelling booking (admin):', error);
     return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
   }
 };

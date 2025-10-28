@@ -218,6 +218,21 @@ async function ensureReviewsImages() {
   }
 }
 
+// Cập nhật payment_status ENUM trong bookings table để thêm 'partial_refunded'
+async function ensureBookingPaymentStatusEnum() {
+  try {
+    await sequelize.query(`
+      ALTER TABLE \`bookings\` 
+      MODIFY COLUMN \`payment_status\` 
+      ENUM('pending', 'paid', 'refunded', 'partial_refunded') 
+      NOT NULL DEFAULT 'pending'
+    `);
+    console.log('✅ Updated payment_status ENUM to include partial_refunded');
+  } catch (error) {
+    console.error('Error updating payment_status ENUM:', error);
+  }
+}
+
 module.exports = {
   ensureImagesColumns,
   ensureServiceFields,
@@ -228,7 +243,8 @@ module.exports = {
   ensureRoomStatusEnum,
   ensureUserCccdColumn,
   ensureUserEmailNullable,
-  ensureReviewsImages
+  ensureReviewsImages,
+  ensureBookingPaymentStatusEnum
 };
 
 // Add updated_at to room_prices if missing
@@ -241,6 +257,24 @@ async function ensureRoomPricesUpdatedAt() {
   }
 }
 
+// Thêm cột payment_date vào bảng payments nếu chưa có
+async function ensurePaymentDateColumn() {
+  try {
+    const hasPaymentDate = await columnExists('payments', 'payment_date');
+    
+    if (!hasPaymentDate) {
+      await sequelize.query(`
+        ALTER TABLE \`payments\` 
+        ADD COLUMN \`payment_date\` DATETIME NULL
+      `);
+      console.log('✅ Added payment_date column to payments table');
+    }
+  } catch (error) {
+    console.error('Error adding payment_date column:', error);
+  }
+}
+
 module.exports.ensureRoomPricesUpdatedAt = ensureRoomPricesUpdatedAt;
+module.exports.ensurePaymentDateColumn = ensurePaymentDateColumn;
 
 
