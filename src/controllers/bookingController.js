@@ -5,7 +5,7 @@ const redisService = require('../utils/redis.util');
 const payOSService = require('../utils/payos.util');
 const sendEmail = require('../utils/email.util');
 const pdfService = require('../utils/pdf.util');
-const { sendInvoiceEmail, sendReviewRequestEmail } = require('../utils/emailBooking.util');
+const { sendInvoiceEmail, sendReviewRequestEmail, sendRefundEmail, sendRefundRequestEmail } = require('../utils/emailBooking.util');
 
 // ========== LUỒNG 1: ĐẶT PHÒNG TRỰC TUYẾN (ONLINE) ==========
 
@@ -1314,6 +1314,20 @@ exports.cancelBooking = async (req, res) => {
         );
       }
 
+      // Gửi email yêu cầu khách cung cấp STK để hoàn tiền thủ công
+      try {
+        const user = await User.findByPk(booking.user_id);
+        if (user && user.email) {
+          await sendRefundRequestEmail(booking, user, {
+            amount: refundAmount,
+            policy: cancellationPolicy,
+            method: refundPayment.method
+          });
+        }
+      } catch (emailErr) {
+        console.error('Error sending refund email:', emailErr);
+      }
+
       return res.status(200).json({ 
         message: 'Hủy booking thành công',
         refund_amount: refundAmount,
@@ -1369,7 +1383,7 @@ exports.cancelBooking = async (req, res) => {
 exports.cancelBookingAdmin = async (req, res) => {
   try {
     const { id } = req.params;
-    const { reason = '', refund_manually = false } = req.body;
+    const { reason = '', refund_manually = false, refund_amount } = req.body;
 
     const booking = await Booking.findByPk(id, {
       include: [
@@ -1388,13 +1402,15 @@ exports.cancelBookingAdmin = async (req, res) => {
       });
     }
 
-    // Admin hủy không hoàn tiền mặc định (xử lý thủ công)
+    // Admin hủy: có thể chọn hoàn tiền thủ công (một phần hoặc toàn phần)
     booking.booking_status = 'cancelled';
+    const manualNote = refund_manually 
+      ? ` (Đã hoàn tiền thủ công${refund_amount ? `: ${refund_amount}` : ''})`
+      : ' (Không hoàn tiền - xử lý thủ công)';
     booking.note = booking.note 
-      ? `${booking.note}\nAdmin hủy: ${reason}${refund_manually ? ' (Đã hoàn tiền thủ công)' : ' (Không hoàn tiền - xử lý thủ công)'}` 
-      : `Admin hủy: ${reason}${refund_manually ? ' (Đã hoàn tiền thủ công)' : ' (Không hoàn tiền - xử lý thủ công)'}`;
-    
-    // Đánh dấu là admin đã xử lý thủ công (có thể đã hoàn tiền trước đó)
+      ? `${booking.note}\nAdmin hủy: ${reason}${manualNote}`
+      : `Admin hủy: ${reason}${manualNote}`;
+
     await booking.save();
 
     // Giải phóng phòng
@@ -1407,6 +1423,8 @@ exports.cancelBookingAdmin = async (req, res) => {
 
     return res.status(200).json({ 
       message: 'Admin hủy booking thành công',
+      refund_manually,
+      refund_amount: refund_amount || 0,
       note: refund_manually 
         ? 'Đã đánh dấu là đã hoàn tiền thủ công' 
         : 'Không hoàn tiền - xử lý thủ công'
@@ -1414,6 +1432,92 @@ exports.cancelBookingAdmin = async (req, res) => {
 
   } catch (error) {
     console.error('Error cancelling booking (admin):', error);
+    return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+  }
+};
+
+// Admin: Đánh dấu đã hoàn tiền (thủ công hoặc PayOS ngoài hệ thống)
+exports.refundBookingAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount, method = 'cash', note = '' } = req.body;
+
+    const booking = await Booking.findByPk(id, { include: [{ model: User, as: 'user' }] });
+    if (!booking) {
+      return res.status(404).json({ message: 'Không tìm thấy booking' });
+    }
+
+    // Ưu tiên cập nhật bản ghi hoàn tiền đang chờ (được tạo khi user hủy trước 48h)
+    let refundPayment = await Payment.findOne({
+      where: {
+        booking_id: booking.booking_id,
+        amount: { [Op.lt]: 0 },
+        status: 'pending'
+      }
+    });
+
+    let refundAmountAbs;
+    if (refundPayment) {
+      // Cập nhật bản ghi pending thành hoàn tất
+      refundPayment.method = method;
+      refundPayment.status = 'completed';
+      refundPayment.transaction_id = `ADMIN-REFUND-${booking.booking_code}-${Date.now()}`;
+      refundPayment.payment_date = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
+      await refundPayment.save();
+      refundAmountAbs = Math.abs(Number(refundPayment.amount));
+    } else {
+      // Không có pending refund: yêu cầu số tiền để tạo bản ghi hoàn mới
+      if (!amount || Number(amount) <= 0) {
+        return res.status(400).json({ message: 'Vui lòng cung cấp số tiền hoàn hợp lệ' });
+      }
+
+      refundPayment = await Payment.create({
+        booking_id: booking.booking_id,
+        amount: -Math.abs(Number(amount)),
+        method,
+        status: 'completed',
+        transaction_id: `ADMIN-REFUND-${booking.booking_code}-${Date.now()}`,
+        payment_date: moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss')
+      });
+      refundAmountAbs = Math.abs(Number(amount));
+    }
+
+    // Booking: admin đã xác nhận hoàn tiền thủ công → đánh dấu refunded
+    booking.payment_status = 'refunded';
+    const append = `Admin đánh dấu hoàn tiền ${refundAmountAbs.toLocaleString('vi-VN')} VNĐ (${method})${note ? ` - ${note}` : ''}`;
+    booking.note = booking.note ? `${booking.note}\n${append}` : append;
+    await booking.save();
+
+    // Gửi email xác nhận hoàn tiền cho khách
+    try {
+      if (booking.user && booking.user.email) {
+        await sendRefundEmail(booking, booking.user, {
+          amount: refundAmountAbs,
+          policy: 'Hoàn tiền thủ công theo yêu cầu',
+          method,
+          transaction_id: refundPayment.transaction_id,
+          payment_date: refundPayment.payment_date
+        });
+      }
+    } catch (emailErr) {
+      console.error('Error sending admin refund email:', emailErr);
+    }
+
+    return res.status(200).json({
+      message: 'Đã đánh dấu hoàn tiền cho booking',
+      booking_id: booking.booking_id,
+      payment_status: booking.payment_status,
+      refund_payment: {
+        payment_id: refundPayment.payment_id,
+        amount: Math.abs(Number(refundPayment.amount)),
+        method: refundPayment.method,
+        transaction_id: refundPayment.transaction_id,
+        payment_date: refundPayment.payment_date
+      }
+    });
+
+  } catch (error) {
+    console.error('Error admin refund booking:', error);
     return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
   }
 };

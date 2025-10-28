@@ -438,5 +438,74 @@ module.exports = {
   sendBookingReminderEmails,
   sendBookingConfirmationEmail,
   sendInvoiceEmail,
-  sendReviewRequestEmail
+  sendReviewRequestEmail,
+  // Gửi email xác nhận hoàn tiền cho khách
+  sendRefundEmail: async (booking, user, refundInfo) => {
+    try {
+      if (!user || !user.email) return;
+
+      const emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #27ae60;">Xác nhận hoàn tiền</h2>
+          <p>Xin chào <strong>${user.full_name}</strong>,</p>
+          <p>Chúng tôi xác nhận yêu cầu hủy đặt phòng <strong>${booking.booking_code}</strong> đã được xử lý.</p>
+          <div style="background-color: #f8f9fa; padding: 16px; border-radius: 8px; margin: 16px 0;">
+            <p><strong>Số tiền hoàn:</strong> ${Number(refundInfo.amount).toLocaleString('vi-VN')} VNĐ</p>
+            <p><strong>Chính sách:</strong> ${refundInfo.policy || 'Theo quy định khách sạn'}</p>
+            ${refundInfo.method ? `<p><strong>Phương thức:</strong> ${refundInfo.method === 'payos' ? 'PayOS' : refundInfo.method}</p>` : ''}
+            ${refundInfo.transaction_id ? `<p><strong>Mã giao dịch:</strong> ${refundInfo.transaction_id}</p>` : ''}
+            ${refundInfo.payment_date ? `<p><strong>Thời gian:</strong> ${refundInfo.payment_date}</p>` : ''}
+          </div>
+          <p>Nếu bạn thanh toán online, khoản tiền sẽ được hoàn về phương thức thanh toán ban đầu trong 3–7 ngày làm việc (tùy ngân hàng).</p>
+          <p>Trân trọng,<br/><strong>Hotel Booking Team</strong></p>
+        </div>
+      `;
+
+      await sendEmail(
+        user.email,
+        `Xác nhận hoàn tiền - ${booking.booking_code}`,
+        null,
+        emailHtml
+      );
+    } catch (err) {
+      console.error('[EMAIL REFUND] Lỗi gửi email hoàn tiền:', err);
+    }
+  }
+  ,
+  // Gửi email yêu cầu khách cung cấp STK để hoàn tiền
+  sendRefundRequestEmail: async (booking, user, refundInfo) => {
+    try {
+      if (!user || !user.email) return;
+
+      const emailHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style=\"color: #e67e22;\">Yêu cầu thông tin hoàn tiền</h2>
+          <p>Xin chào <strong>${user.full_name}</strong>,</p>
+          <p>Yêu cầu hủy đặt phòng <strong>${booking.booking_code}</strong> của bạn đã được chấp nhận.</p>
+          <div style=\"background-color: #f8f9fa; padding: 16px; border-radius: 8px; margin: 16px 0;\">
+            <p><strong>Số tiền sẽ hoàn:</strong> ${Number(refundInfo.amount).toLocaleString('vi-VN')} VNĐ</p>
+            <p><strong>Chính sách:</strong> ${refundInfo.policy || 'Theo quy định hủy trước 48h: hoàn 70%'} </p>
+          </div>
+          <p>Vui lòng trả lời email này với thông tin <strong>Số tài khoản ngân hàng</strong> của bạn để chúng tôi tiến hành hoàn tiền:</p>
+          <ul>
+            <li>Chủ tài khoản</li>
+            <li>Số tài khoản</li>
+            <li>Ngân hàng</li>
+            <li>Chi nhánh (nếu có)</li>
+          </ul>
+          <p>Sau khi nhận được thông tin, chúng tôi sẽ xử lý hoàn tiền trong vòng 1-3 ngày làm việc.</p>
+          <p>Trân trọng,<br/><strong>Hotel Booking Team</strong></p>
+        </div>
+      `;
+
+      await sendEmail(
+        user.email,
+        `Yêu cầu thông tin hoàn tiền - ${booking.booking_code}`,
+        null,
+        emailHtml
+      );
+    } catch (err) {
+      console.error('[EMAIL REFUND REQUEST] Lỗi gửi email yêu cầu STK:', err);
+    }
+  }
 };

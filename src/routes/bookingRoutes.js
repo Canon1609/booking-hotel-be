@@ -54,6 +54,9 @@ router.post('/:id/cancel', protect, bookingController.cancelBooking);
 // Admin: Hủy booking không hoàn tiền (xử lý thủ công) - Admin only
 router.post('/:id/cancel-admin', protect, adminOnly, bookingController.cancelBookingAdmin);
 
+// Admin: Đánh dấu đã hoàn tiền (ghi nhận payment âm, gửi email xác nhận)
+router.post('/:id/refund-admin', protect, adminOnly, bookingController.refundBookingAdmin);
+
 // Tạo và tải hóa đơn PDF - Admin/Staff
 router.get('/:id/invoice/pdf', protect, adminOnly, bookingController.generateInvoicePDF);
 

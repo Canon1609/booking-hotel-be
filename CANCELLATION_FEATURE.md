@@ -179,6 +179,119 @@ if (booking.room_id) {
 
 ## 🧪 Test Cases - Chi tiết
 
+### Luồng đơn giản (chuẩn): Admin đánh dấu hoàn tiền thủ công
+
+Quy trình 4 bước:
+1) Admin chuyển khoản hoàn theo STK khách đã gửi qua email
+2) Hệ thống gửi email xác nhận hoàn tiền (khi admin đánh dấu)
+3) Admin gọi API đánh dấu đã hoàn tiền
+4) `payment_status` chuyển thành `refunded`
+
+1) Tạo và thanh toán booking online (trước 48h để được hoàn 70%)
+```bash
+# Giữ chỗ tạm thời
+POST /api/bookings/temp-booking
+Authorization: Bearer USER_TOKEN
+{
+  "room_type_id": 1,
+  "check_in_date": "2025-02-05",
+  "check_out_date": "2025-02-07",
+  "num_person": 2
+}
+
+# Tạo link thanh toán
+POST /api/bookings/create-payment-link
+Authorization: Bearer USER_TOKEN
+{
+  "temp_booking_key": "<temp_key>"
+}
+
+# Mô phỏng thanh toán thành công (PayOS webhook)
+POST /api/bookings/payment-webhook
+{
+  "orderCode": "<order_code>",
+  "status": "PAID"
+}
+```
+
+2) User hủy booking (trước 48h)
+```bash
+POST /api/bookings/{booking_id}/cancel
+Authorization: Bearer USER_TOKEN
+{
+  "reason": "Thay đổi kế hoạch"
+}
+```
+- Kỳ vọng:
+- Response có `refund_amount = 70%`, `payment_status = partial_refunded`, `booking_status = cancelled`
+- Hệ thống gửi EMAIL “Yêu cầu thông tin hoàn tiền” → Khách phản hồi STK qua email
+
+3) Admin đánh dấu đã hoàn tiền trong hệ thống
+```bash
+POST /api/bookings/{booking_id}/refund-admin
+Authorization: Bearer ADMIN_TOKEN
+{
+  "amount": 1680000,      # Số tiền admin đã CK cho khách
+  "method": "banking",   # banking | cash | payos
+  "note": "Hoàn theo STK khách cung cấp"
+}
+```
+- Kỳ vọng:
+  - Tạo/cập nhật payment âm hoàn tất (status = completed, có transaction_id, payment_date)
+  - Gửi EMAIL “Xác nhận hoàn tiền” cho khách
+  - Cập nhật `payment_status` = `refunded`
+
+4) Xác minh kết quả
+```bash
+GET /api/bookings/{booking_id}
+Authorization: Bearer ADMIN_TOKEN
+```
+- `payments` có 2 bản ghi: payment dương (thanh toán), payment âm (refund)
+- `payment_summary.total_refunded` đúng với số tiền đã hoàn
+- `note` có dòng: "Admin đánh dấu hoàn tiền ..."
+
+📌 Quy tắc hoàn tiền của Admin:
+- Với flow hiện tại: Admin chỉ ĐÁNH DẤU hoàn tiền thủ công.
+- Trường hợp có bản ghi hoàn tiền pending (tạo khi user hủy trước 48h): API sẽ chuyển sang completed, set `payment_date`, thêm `transaction_id`, gửi email xác nhận.
+- Trường hợp KHÔNG có bản ghi pending: truyền `amount` để tạo bản ghi hoàn âm hoàn tất ngay, gửi email xác nhận.
+
+#### Cách test chi tiết cho Admin (2 trường hợp)
+
+1) Có bản ghi hoàn tiền pending (user hủy trước 48h đã sinh pending refund)
+```http
+POST http://localhost:5000/api/bookings/{booking_id}/refund-admin
+Authorization: Bearer ADMIN_TOKEN
+Content-Type: application/json
+
+{
+  "method": "banking",
+  "note": "Chuyển khoản xong"
+}
+```
+- Kỳ vọng:
+  - Payment âm status chuyển từ `pending` → `completed`
+  - Có `transaction_id` kiểu `ADMIN-REFUND-<booking_code>-<timestamp>` và `payment_date`
+  - `payment_status` được cập nhật (thường là `refunded` nếu đây là khoản hoàn theo chính sách)
+  - Email xác nhận hoàn tiền được gửi cho khách
+
+2) Không có bản ghi pending (admin hoàn mới)
+```http
+POST http://localhost:5000/api/bookings/{booking_id}/refund-admin
+Authorization: Bearer ADMIN_TOKEN
+Content-Type: application/json
+
+{
+  "amount": 1680000,
+  "method": "banking",
+  "note": "Hoàn theo STK khách cung cấp"
+}
+```
+- Kỳ vọng:
+  - Tạo mới payment âm với `status = completed`
+  - Có `transaction_id` và `payment_date`
+  - `payment_status` cập nhật thành `refunded`
+  - Email xác nhận hoàn tiền được gửi
+
 ### Test Case 1: User hủy trước 48h - Được hoàn 70%
 
 **Bước 1: Đăng nhập và tạo booking**
