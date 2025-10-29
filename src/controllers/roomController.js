@@ -232,6 +232,7 @@ exports.searchAvailability = async (req, res) => {
         {
           model: RoomType,
           as: 'room_type',
+          required: true,
           attributes: ['room_type_id', 'room_type_name', 'capacity', 'images', 'amenities', 'area'],
           include: [
             {
