@@ -264,9 +264,63 @@ exports.searchAvailability = async (req, res) => {
       ? rows.filter(r => (r.room_type && typeof r.room_type.capacity === 'number' ? r.room_type.capacity >= parseInt(guests) : true))
       : rows);
 
+    // Build availability summary by room type
+    const availableCountByType = {};
+    const roomTypeInfoById = {};
+    filteredRows.forEach(r => {
+      const rt = r.room_type;
+      if (!rt) return;
+      const key = rt.room_type_id;
+      availableCountByType[key] = (availableCountByType[key] || 0) + 1;
+      if (!roomTypeInfoById[key]) {
+        roomTypeInfoById[key] = {
+          room_type_id: rt.room_type_id,
+          room_type_name: rt.room_type_name,
+          capacity: rt.capacity,
+          amenities: rt.amenities,
+          area: rt.area,
+        };
+      }
+    });
+
+    // Get total rooms per room type (respecting base roomWhere like hotel_id/room_type_id and excluding temp holds)
+    const totalRoomsRaw = await Room.findAll({
+      where: { ...roomWhere },
+      attributes: [
+        'room_type_id',
+        [Sequelize.fn('COUNT', Sequelize.col('room_id')), 'total_rooms']
+      ],
+      group: ['room_type_id']
+    });
+    const totalByType = {};
+    totalRoomsRaw.forEach(row => {
+      const data = row.get({ plain: true });
+      totalByType[data.room_type_id] = parseInt(data.total_rooms, 10) || 0;
+    });
+
+    // Compose summary list (include types present either in available or total)
+    const typeIds = new Set([
+      ...Object.keys(totalByType).map(id => String(id)),
+      ...Object.keys(availableCountByType).map(id => String(id))
+    ]);
+    const summaryByRoomType = Array.from(typeIds).map(id => {
+      const roomTypeId = parseInt(id, 10);
+      const totalRooms = totalByType[roomTypeId] || 0;
+      const availableRooms = availableCountByType[roomTypeId] || 0;
+      const info = roomTypeInfoById[roomTypeId] || { room_type_id: roomTypeId };
+      return {
+        ...info,
+        total_rooms: totalRooms,
+        booked_rooms: Math.max(totalRooms - availableRooms, 0),
+        available_rooms: availableRooms,
+        sold_out: availableRooms === 0
+      };
+    }).sort((a, b) => a.room_type_id - b.room_type_id);
+
     return res.status(200).json({
       total: Array.isArray(count) ? count.length : count,
-      rooms: filteredRows
+      rooms: filteredRows,
+      summary_by_room_type: summaryByRoomType
     });
   } catch (error) {
     return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
