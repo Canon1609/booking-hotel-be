@@ -1591,12 +1591,13 @@ INSERT INTO booking_services (
   }
   ```
 
-#### 9.3.6. Check-in (phòng đã được gán sẵn)
+#### 9.3.6. Check-in (phòng đã được gán sẵn) — Quy tắc giờ check-in cho booking online
 - **POST** `http://localhost:5000/api/bookings/{booking_code}/check-in`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Yêu cầu:** 
   - Booking phải ở trạng thái `confirmed`
   - Phòng đã được gán sẵn khi thanh toán thành công
+  - Nếu là booking online: chỉ được check-in từ **12:00 trưa ngày check_in_date** trở đi. Trước thời điểm này API sẽ trả về lỗi 400.
 - **Ví dụ:** `POST http://localhost:5000/api/bookings/9AF1MBNS/check-in`
 - **Response:**
   ```json
@@ -1615,6 +1616,16 @@ INSERT INTO booking_services (
   - Phòng đã được gán tự động khi thanh toán thành công
   - Lễ tân chỉ cần xác nhận check-in, không cần chỉ định phòng
   - Sau check-in, booking chuyển sang trạng thái `checked_in`
+
+Response khi chưa tới 12:00 (booking online):
+```json
+{
+  "message": "Chưa tới giờ check-in. Vui lòng quay lại sau 12:00 trưa ngày check-in",
+  "check_in_date": "2025-10-31",
+  "earliest_check_in_time": "2025-10-31 12:00:00",
+  "statusCode": 400
+}
+```
 
 #### 9.3.7. Check-out
 - **POST** `http://localhost:5000/api/bookings/{booking_code}/check-out`

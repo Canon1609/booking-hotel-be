@@ -1014,6 +1014,23 @@ exports.checkIn = async (req, res) => {
       return res.status(400).json({ message: 'Booking không ở trạng thái confirmed' });
     }
 
+    // Ràng buộc: Booking online chỉ được check-in từ 12:00 trưa ngày check-in
+    if (booking.booking_type === 'online') {
+      const now = moment().tz('Asia/Ho_Chi_Minh');
+      const earliestCheckIn = moment(booking.check_in_date).tz('Asia/Ho_Chi_Minh').set({
+        hour: 12,
+        minute: 0,
+        second: 0
+      });
+      if (now.isBefore(earliestCheckIn)) {
+        return res.status(400).json({
+          message: 'Chưa tới giờ check-in. Vui lòng quay lại sau 12:00 trưa ngày check-in',
+          check_in_date: booking.check_in_date,
+          earliest_check_in_time: earliestCheckIn.format('YYYY-MM-DD HH:mm:ss')
+        });
+      }
+    }
+
     if (booking.check_in_time) {
       return res.status(400).json({ message: 'Khách đã check-in rồi' });
     }
