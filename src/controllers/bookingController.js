@@ -1277,19 +1277,38 @@ exports.cancelBooking = async (req, res) => {
       second: 0
     });
 
-    // Kiểm tra xem có phải trước 48 giờ không
+    // Chính sách mới: kiểm tra thời gian từ khi đặt đến lúc hủy
+    const createdAt = moment(booking.created_at).tz('Asia/Ho_Chi_Minh');
+    const hoursSinceBooking = now.diff(createdAt, 'hours');
     const hoursUntilCheckIn = checkInDateTime.diff(now, 'hours');
-    const isBefore48Hours = hoursUntilCheckIn > 48;
+    const isWithin12h = hoursSinceBooking <= 12;
+    const isWithin48h = hoursUntilCheckIn <= 48;
 
     let refundAmount = 0;
     let cancellationPolicy = '';
+    let penaltyRate = 1; // Tỷ lệ giữ lại (default mất 100%)
 
-    if (isBefore48Hours) {
-      // Hủy trước 48 giờ: hoàn 70%, giữ 30%
-      refundAmount = parseFloat(booking.total_price) * 0.7;
+    // Ưu tiên 48h trước check-in: nếu còn dưới 48h thì mất 100%
+    if (isWithin48h) {
+      penaltyRate = 1;
+      refundAmount = 0;
+      cancellationPolicy = 'Hủy trong vòng 48 giờ - mất 100%';
+      booking.payment_status = 'paid';
+    } else if (isWithin12h) {
+      // >48h trước check-in và hủy trong 12h từ lúc đặt => phạt 15%
+      penaltyRate = 0.15;
+      refundAmount = parseFloat(booking.total_price) * (1 - penaltyRate);
+      cancellationPolicy = 'Hủy trong 12 tiếng kể từ lúc đặt: hoàn 85%, phí 15%';
+      booking.payment_status = 'partial_refunded';
+    } else {
+      // >48h trước check-in và đã qua 12h => phạt 30%
+      penaltyRate = 0.3;
+      refundAmount = parseFloat(booking.total_price) * (1 - penaltyRate);
       cancellationPolicy = 'Hủy trước 48 giờ - hoàn 70%, phí 30%';
       booking.payment_status = 'partial_refunded';
-      
+    }
+
+    if (penaltyRate < 1) {
       // Tạo payment record cho refund
       const refundPayment = await Payment.create({
         booking_id: booking.booking_id,
@@ -1334,7 +1353,7 @@ exports.cancelBooking = async (req, res) => {
         cancellation_policy: cancellationPolicy,
         hours_until_checkin: hoursUntilCheckIn,
         booking_status: 'cancelled',
-        payment_status: 'partial_refunded',
+        payment_status: booking.payment_status,
         refund_payment: {
           payment_id: refundPayment.payment_id,
           amount: parseFloat(refundPayment.amount),
@@ -1344,17 +1363,11 @@ exports.cancelBooking = async (req, res) => {
         note: 'Đã ghi nhận hoàn tiền trong hệ thống. Tiền sẽ được xử lý theo phương thức thanh toán ban đầu (PayOS hoặc tiền mặt).'
       });
     } else {
-      // Hủy trong vòng 48 giờ hoặc không đến: mất 100%
-      refundAmount = 0;
-      cancellationPolicy = 'Hủy trong vòng 48 giờ - mất 100%';
-      booking.payment_status = 'paid'; // Giữ nguyên, không hoàn tiền
-
-      // Cập nhật trạng thái booking
+      // Không hoàn tiền trong vòng 48h hoặc không đến
       booking.booking_status = 'cancelled';
       booking.note = booking.note ? `${booking.note}\nHủy: ${reason}` : `Hủy: ${reason}`;
       await booking.save();
 
-      // Giải phóng phòng nếu đã được gán
       if (booking.room_id) {
         await Room.update(
           { status: 'available' },
@@ -1364,7 +1377,7 @@ exports.cancelBooking = async (req, res) => {
 
       return res.status(200).json({ 
         message: 'Hủy booking thành công',
-        refund_amount: refundAmount,
+        refund_amount: 0,
         cancellation_policy: cancellationPolicy,
         hours_until_checkin: hoursUntilCheckIn,
         booking_status: 'cancelled',
@@ -1447,7 +1460,41 @@ exports.refundBookingAdmin = async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy booking' });
     }
 
-    // Ưu tiên cập nhật bản ghi hoàn tiền đang chờ (được tạo khi user hủy trước 48h)
+    // Tính giới hạn hoàn tối đa theo policy và số đã hoàn
+    const now = moment().tz('Asia/Ho_Chi_Minh');
+    const checkInDateTime = moment(booking.check_in_date).tz('Asia/Ho_Chi_Minh').set({ hour: 14, minute: 0, second: 0 });
+    const createdAt = moment(booking.created_at).tz('Asia/Ho_Chi_Minh');
+    const hoursUntilCheckIn = checkInDateTime.diff(now, 'hours');
+    const hoursSinceBooking = now.diff(createdAt, 'hours');
+    const isWithin48h = hoursUntilCheckIn <= 48;
+    const isWithin12h = hoursSinceBooking <= 12;
+
+    let penaltyRate;
+    if (isWithin48h) penaltyRate = 1; // mất 100%
+    else if (isWithin12h) penaltyRate = 0.15; // phạt 15%
+    else penaltyRate = 0.3; // phạt 30%
+
+    const totalPrice = parseFloat(booking.total_price) || 0;
+    const maxPolicyRefund = totalPrice * (1 - penaltyRate);
+
+    // Tổng đã thanh toán (completed, dương) và đã hoàn (completed, âm)
+    const totalPaid = (await Payment.sum('amount', { where: { booking_id: booking.booking_id, status: 'completed', amount: { [Op.gt]: 0 } } })) || 0;
+    const totalRefundedAbs = Math.abs((await Payment.sum('amount', { where: { booking_id: booking.booking_id, status: 'completed', amount: { [Op.lt]: 0 } } })) || 0);
+
+    const refundableCap = Math.max(0, Math.min(maxPolicyRefund, totalPaid) - totalRefundedAbs);
+
+    if (!amount || Number(amount) <= 0) {
+      return res.status(400).json({ message: 'Vui lòng cung cấp số tiền hoàn hợp lệ' });
+    }
+    if (Number(amount) > refundableCap) {
+      return res.status(400).json({ 
+        message: 'Số tiền hoàn vượt quá mức cho phép theo chính sách',
+        allowed_max_refund: refundableCap,
+        policy: isWithin48h ? 'Trong 48h trước check-in - không hoàn' : (isWithin12h ? 'Trong 12h từ lúc đặt - hoàn tối đa 85%' : 'Trước 48h và >12h từ lúc đặt - hoàn tối đa 70%')
+      });
+    }
+
+    // Ưu tiên cập nhật bản ghi hoàn tiền đang chờ (nếu có)
     let refundPayment = await Payment.findOne({
       where: {
         booking_id: booking.booking_id,
@@ -1466,11 +1513,6 @@ exports.refundBookingAdmin = async (req, res) => {
       await refundPayment.save();
       refundAmountAbs = Math.abs(Number(refundPayment.amount));
     } else {
-      // Không có pending refund: yêu cầu số tiền để tạo bản ghi hoàn mới
-      if (!amount || Number(amount) <= 0) {
-        return res.status(400).json({ message: 'Vui lòng cung cấp số tiền hoàn hợp lệ' });
-      }
-
       refundPayment = await Payment.create({
         booking_id: booking.booking_id,
         amount: -Math.abs(Number(amount)),
@@ -1482,8 +1524,10 @@ exports.refundBookingAdmin = async (req, res) => {
       refundAmountAbs = Math.abs(Number(amount));
     }
 
-    // Booking: admin đã xác nhận hoàn tiền thủ công → đánh dấu refunded
-    booking.payment_status = 'refunded';
+    // Booking: cập nhật trạng thái payment theo mức đã hoàn
+    const totalRefundedAfter = totalRefundedAbs + refundAmountAbs;
+    const fullyRefundedTarget = Math.min(maxPolicyRefund, totalPaid);
+    booking.payment_status = totalRefundedAfter >= fullyRefundedTarget - 1e-6 ? 'refunded' : 'partial_refunded';
     const append = `Admin đánh dấu hoàn tiền ${refundAmountAbs.toLocaleString('vi-VN')} VNĐ (${method})${note ? ` - ${note}` : ''}`;
     booking.note = booking.note ? `${booking.note}\n${append}` : append;
     await booking.save();

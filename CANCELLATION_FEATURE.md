@@ -4,18 +4,15 @@
 
 Chức năng hủy đặt phòng cho phép khách hàng và admin hủy booking với các chính sách hoàn tiền khác nhau.
 
-## 🎯 Chính sách hủy phòng
+## 🎯 Chính sách hủy phòng (ưu tiên theo thứ tự)
 
-### 1. Hủy trước 48 giờ check-in (14:00)
-- **Hoàn tiền: 70%** tổng số tiền
-- **Phí giữ lại: 30%** - Khách sạn giữ lại làm phí
-- **Cập nhật payment_status:** `partial_refunded`
-- **Tạo payment record:** Ghi nhận số tiền hoàn lại (số âm)
+1) Nếu thời gian tới giờ check-in (14:00 ngày check-in) còn < 48 giờ
+- **Hoàn tiền: 0%** (mất 100%)
+- **payment_status:** giữ nguyên `paid`
 
-### 2. Hủy trong vòng 48 giờ hoặc không đến
-- **Hoàn tiền: 0%** - Mất toàn bộ số tiền
-- **payment_status:** Giữ nguyên `paid`
-- **Ghi chú:** Cancellation policy applied
+2) Nếu còn ≥ 48 giờ mới tới giờ check-in, xét tiếp mốc thời gian từ lúc đặt tới lúc hủy:
+- Nếu hủy trong vòng **≤ 12 giờ** kể từ lúc đặt: **phí 15%**, **hoàn 85%** (payment_status: `partial_refunded`)
+- Nếu hủy **> 12 giờ** kể từ lúc đặt: **phí 30%**, **hoàn 70%** (payment_status: `partial_refunded`)
 
 ## 🔄 Chức năng đổi phòng (Modification)
 
@@ -150,7 +147,9 @@ const checkInDateTime = moment(booking.check_in_date).tz('Asia/Ho_Chi_Minh').set
   second: 0
 });
 const hoursUntilCheckIn = checkInDateTime.diff(now, 'hours');
-const isBefore48Hours = hoursUntilCheckIn > 48;
+const hoursSinceBooking = now.diff(moment(booking.created_at).tz('Asia/Ho_Chi_Minh'), 'hours');
+const isWithin48h = hoursUntilCheckIn <= 48;   // < 48h: mất 100%
+const isWithin12h = hoursSinceBooking <= 12;   // <=12h kể từ lúc đặt: phạt 15%
 ```
 
 ### Tạo payment record cho hoàn tiền
@@ -292,7 +291,7 @@ Content-Type: application/json
   - `payment_status` cập nhật thành `refunded`
   - Email xác nhận hoàn tiền được gửi
 
-### Test Case 1: User hủy trước 48h - Được hoàn 70%
+### Test Case 1: User hủy trước 48h và >12h từ lúc đặt - Hoàn 70%
 
 **Bước 1: Đăng nhập và tạo booking**
 ```bash

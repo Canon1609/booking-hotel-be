@@ -330,7 +330,59 @@ Headers: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
       }
     }
   ]
+    "summary_by_room_type": [
+        {
+            "room_type_id": 1,
+            "room_type_name": "Phòng Đơn Tiêu Chuẩn",
+            "capacity": 1,
+            "amenities": [
+                "WiFi miễn phí",
+                "Điều hòa",
+                "Tivi",
+                "Tủ lạnh"
+            ],
+            "area": 20,
+            "total_rooms": 5,
+            "booked_rooms": 0,
+            "available_rooms": 5,
+            "sold_out": false
+        },
+        {
+            "room_type_id": 2,
+            "room_type_name": "Phòng Đơn Vip",
+            "capacity": 1,
+            "amenities": [
+                "WiFi miễn phí",
+                "Điều hòa",
+                "Tivi",
+                "Tủ lạnh",
+                "Nước nóng",
+                "Ban công"
+            ],
+            "area": 25,
+            "total_rooms": 5,
+            "booked_rooms": 0,
+            "available_rooms": 5,
+            "sold_out": false
+        },
+        {
+            "room_type_id": 3,
+            "total_rooms": 5,
+            "booked_rooms": 5,
+            "available_rooms": 0,
+            "sold_out": true
+        },
+        {
+            "room_type_id": 4,
+            "total_rooms": 5,
+            "booked_rooms": 5,
+            "available_rooms": 0,
+            "sold_out": true
+        }
+    ],
+    "statusCode": 200
 }
+
 ```
 
 Ghi chú:
