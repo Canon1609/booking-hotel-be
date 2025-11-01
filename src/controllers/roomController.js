@@ -1,6 +1,6 @@
 const Room = require('../models/room.model');
 const { Op, Sequelize } = require('sequelize');
-const { RoomType, RoomPrice, Booking, Hotel } = require('../models');
+const { RoomType, RoomPrice, Booking, Hotel, BookingRoom } = require('../models');
 const redisService = require('../utils/redis.util');
 
 exports.createRoom = async (req, res) => {
@@ -207,26 +207,39 @@ exports.searchAvailability = async (req, res) => {
         : { [Op.lte]: max_price };
     }
 
-    // Availability: exclude rooms that have overlapping confirmed/completed bookings
-    const overlappingWhere = {
-      [Op.and]: [
-        { check_in_date: { [Op.lt]: check_out } },
-        { check_out_date: { [Op.gt]: check_in } },
-        { booking_status: { [Op.in]: ['confirmed', 'completed'] } }
-      ]
-    };
+    // Availability: tìm các room_id đã được đặt trong khoảng thời gian này qua BookingRoom
+    const bookedRoomIds = await BookingRoom.findAll({
+      include: [{
+        model: Booking,
+        as: 'booking',
+        where: {
+          booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
+          [Op.or]: [
+            {
+              check_in_date: { [Op.lt]: check_out },
+              check_out_date: { [Op.gt]: check_in }
+            }
+          ]
+        },
+        required: true
+      }],
+      attributes: ['room_id'],
+      raw: true
+    }).then(results => [...new Set(results.map(r => r.room_id))]); // Remove duplicates
+
+    // Loại trừ các phòng đã được đặt
+    if (bookedRoomIds.length > 0) {
+      roomWhere.room_id = { [Op.notIn]: bookedRoomIds };
+    }
 
     // Sorting
     const order = [];
     if (sort === 'price_desc') order.push([{ model: RoomType, as: 'room_type' }, { model: RoomPrice, as: 'prices' }, 'price_per_night', 'DESC']);
     else order.push([{ model: RoomType, as: 'room_type' }, { model: RoomPrice, as: 'prices' }, 'price_per_night', 'ASC']);
 
-    // Query available rooms (exclude overlapping bookings via LEFT JOIN and NULL filter)
+    // Query available rooms (không include Booking nữa, đã filter qua where clause)
     const { rows, count } = await Room.findAndCountAll({
-      where: {
-        ...roomWhere,
-        '$bookings.booking_id$': { [Op.is]: null } // only rooms without overlapping bookings
-      },
+      where: roomWhere,
       include: [
         { model: Hotel, as: 'hotel', attributes: ['hotel_id', 'name', 'address', 'phone', 'email', 'images'] },
         {
@@ -243,13 +256,6 @@ exports.searchAvailability = async (req, res) => {
               attributes: ['price_id', 'start_date', 'end_date', 'price_per_night']
             }
           ]
-        },
-        {
-          model: Booking,
-          as: 'bookings',
-          required: false,
-          where: overlappingWhere,
-          attributes: ['booking_id']
         }
       ],
       distinct: true,

@@ -1,5 +1,5 @@
 const sendEmail = require('./email.util');
-const { Booking, User, Room, RoomType } = require('../models');
+const { Booking, User, Room, RoomType, BookingRoom } = require('../models');
 const moment = require('moment-timezone');
 
 // Gửi email nhắc nhở cho khách hàng có check-in ngày mai
@@ -36,6 +36,12 @@ const sendBookingReminderEmails = async () => {
     for (const booking of bookings) {
       if (booking.user && booking.user.email) {
         try {
+          // Lấy số lượng phòng từ booking_rooms
+          const bookingRooms = await BookingRoom.findAll({
+            where: { booking_id: booking.booking_id }
+          });
+          const numRooms = bookingRooms.length || (booking.room_id ? 1 : 0);
+
           const checkInTime = '14:00'; // Giờ check-in mặc định
           const checkOutTime = '12:00'; // Giờ check-out mặc định
           
@@ -50,8 +56,8 @@ const sendBookingReminderEmails = async () => {
               <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
                 <h3 style="color: #2c3e50; margin-top: 0;">Thông tin đặt phòng</h3>
                 <p><strong>Mã đặt phòng:</strong> ${booking.booking_code}</p>
-                <p><strong>Loại phòng:</strong> ${booking.room.room_type?.room_type_name || 'N/A'}</p>
-                <p><strong>Số phòng:</strong> ${booking.room.room_number}</p>
+                <p><strong>Loại phòng:</strong> ${booking.room?.room_type?.room_type_name || 'N/A'}</p>
+                <p><strong>Số lượng phòng:</strong> <strong>${numRooms} phòng</strong></p>
                 <p><strong>Ngày check-in:</strong> ${moment(booking.check_in_date).format('DD/MM/YYYY')} lúc ${checkInTime}</p>
                 <p><strong>Ngày check-out:</strong> ${moment(booking.check_out_date).format('DD/MM/YYYY')} lúc ${checkOutTime}</p>
                 <p><strong>Số khách:</strong> ${booking.num_person} người</p>
@@ -102,6 +108,12 @@ const sendBookingConfirmationEmail = async (booking, user) => {
       return;
     }
 
+    // Lấy số lượng phòng từ booking_rooms nếu có
+    const bookingRooms = await BookingRoom.findAll({
+      where: { booking_id: booking.booking_id }
+    });
+    const numRooms = bookingRooms.length || (booking.room_id ? 1 : 0);
+
     const emailContent = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #27ae60;">Đặt phòng thành công!</h2>
@@ -113,8 +125,8 @@ const sendBookingConfirmationEmail = async (booking, user) => {
         <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
           <h3 style="color: #2c3e50; margin-top: 0;">Thông tin đặt phòng</h3>
           <p><strong>Mã đặt phòng:</strong> ${booking.booking_code}</p>
-          <p><strong>Loại phòng:</strong> ${booking.room?.room_type?.room_type_name || 'N/A'}</p>
-          <p><strong>Số phòng:</strong> ${booking.room?.room_number || 'N/A'}</p>
+          <p><strong>Loại phòng:</strong> ${booking.room?.room_type?.room_type_name || booking.room_type?.room_type_name || 'N/A'}</p>
+          <p><strong>Số lượng phòng:</strong> <strong>${numRooms} phòng</strong></p>
           <p><strong>Ngày check-in:</strong> ${moment(booking.check_in_date).format('DD/MM/YYYY')}</p>
           <p><strong>Ngày check-out:</strong> ${moment(booking.check_out_date).format('DD/MM/YYYY')}</p>
           <p><strong>Số khách:</strong> ${booking.num_person} người</p>
@@ -159,6 +171,12 @@ const sendInvoiceEmail = async (booking, user, invoiceData) => {
       return;
     }
 
+    // Lấy số lượng phòng từ booking_rooms
+    const bookingRooms = await BookingRoom.findAll({
+      where: { booking_id: booking.booking_id }
+    });
+    const numRooms = bookingRooms.length || (booking.room_id ? 1 : 0);
+
     const emailContent = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #2c3e50;">Hóa đơn thanh toán</h2>
@@ -170,8 +188,8 @@ const sendInvoiceEmail = async (booking, user, invoiceData) => {
         <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
           <h3 style="color: #2c3e50; margin-top: 0;">Thông tin booking</h3>
           <p><strong>Mã đặt phòng:</strong> ${booking.booking_code}</p>
-          <p><strong>Loại phòng:</strong> ${booking.room?.room_type?.room_type_name || 'N/A'}</p>
-          <p><strong>Số phòng:</strong> ${booking.room?.room_number || 'N/A'}</p>
+          <p><strong>Loại phòng:</strong> ${booking.room?.room_type?.room_type_name || booking.room_type?.room_type_name || 'N/A'}</p>
+          <p><strong>Số lượng phòng:</strong> <strong>${numRooms} phòng</strong></p>
           <p><strong>Check-in:</strong> ${moment(booking.check_in_time).format('DD/MM/YYYY HH:mm')}</p>
           <p><strong>Check-out:</strong> ${moment(booking.check_out_time).format('DD/MM/YYYY HH:mm')}</p>
         </div>
@@ -233,6 +251,12 @@ const sendReviewRequestEmail = async (booking, user) => {
       console.log('Không có email để gửi mời đánh giá');
       return;
     }
+
+    // Lấy số lượng phòng từ booking_rooms
+    const bookingRooms = await BookingRoom.findAll({
+      where: { booking_id: booking.booking_id }
+    });
+    const numRooms = bookingRooms.length || (booking.room_id ? 1 : 0);
 
     // Tạo link đánh giá (frontend sẽ xử lý phần này)
     const reviewLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/review/${booking.booking_code}`;
@@ -364,8 +388,8 @@ const sendReviewRequestEmail = async (booking, user) => {
                 <span class="detail-value">${booking.room_type?.room_type_name || 'N/A'}</span>
               </div>
               <div class="detail-row">
-                <span class="detail-label">Số phòng:</span>
-                <span class="detail-value">${booking.room?.room_num || 'N/A'}</span>
+                <span class="detail-label">Số lượng phòng:</span>
+                <span class="detail-value"><strong>${numRooms} phòng</strong></span>
               </div>
               <div class="detail-row">
                 <span class="detail-label">Ngày check-in:</span>

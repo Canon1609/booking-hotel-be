@@ -19,12 +19,6 @@ const Booking = sequelize.define('Booking', {
     allowNull: false,
     references: { model: 'room_types', key: 'room_type_id' }
   },
-  room_id: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    references: { model: 'rooms', key: 'room_id' },
-    comment: 'Phòng cụ thể được lễ tân chỉ định khi check-in'
-  },
   check_in_date: {
     type: DataTypes.DATEONLY,
     allowNull: false

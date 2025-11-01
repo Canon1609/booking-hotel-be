@@ -1,6 +1,6 @@
-const { Op } = require('sequelize');
+const { Op, Sequelize } = require('sequelize');
 const moment = require('moment-timezone');
-const { Booking, Room, RoomType, RoomPrice, User, Service, BookingService, Promotion, Payment, Review } = require('../models');
+const { Booking, Room, RoomType, RoomPrice, User, Service, BookingService, BookingRoom, Promotion, Payment, Review } = require('../models');
 const redisService = require('../utils/redis.util');
 const payOSService = require('../utils/payos.util');
 const sendEmail = require('../utils/email.util');
@@ -12,13 +12,20 @@ const { sendInvoiceEmail, sendReviewRequestEmail, sendRefundEmail, sendRefundReq
 // 1.1. Giữ chỗ tạm thời (Redis)
 exports.createTempBooking = async (req, res) => {
   try {
-    const { room_type_id, check_in_date, check_out_date, num_person = 1 } = req.body;
+    const { room_type_id, check_in_date, check_out_date, num_person = 1, num_rooms = 1 } = req.body;
     const user_id = req.user.id;
 
     // Kiểm tra thông tin đầu vào
     if (!room_type_id || !check_in_date || !check_out_date) {
       return res.status(400).json({ 
         message: 'Vui lòng nhập đầy đủ thông tin loại phòng và ngày' 
+      });
+    }
+
+    // Kiểm tra số lượng phòng
+    if (!Number.isInteger(Number(num_rooms)) || Number(num_rooms) < 1) {
+      return res.status(400).json({ 
+        message: 'Số lượng phòng phải là số nguyên dương' 
       });
     }
 
@@ -58,29 +65,172 @@ exports.createTempBooking = async (req, res) => {
     }
 
     // Kiểm tra loại phòng có còn trống không trong khoảng thời gian này
-    const availableRooms = await Room.findAll({
-      where: { room_type_id },
+    // 1. Tìm các phòng đã được đặt vĩnh viễn trong khoảng thời gian này qua BookingRoom
+    // QUAN TRỌNG: Logic overlap dates: booking overlap nếu check_in < request_check_out AND check_out > request_check_in
+    // QUAN TRỌNG: Chỉ tính các booking còn active (chưa check-out hoàn toàn)
+    // Sử dụng Sequelize.literal để đảm bảo logic đúng
+    const today = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD');
+    const bookedRoomDetails = await BookingRoom.findAll({
       include: [{
         model: Booking,
-        as: 'bookings',
+        as: 'booking',
         where: {
           booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
-          [Op.or]: [
-            {
-              check_in_date: { [Op.lte]: checkOut.format('YYYY-MM-DD') },
-              check_out_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
-            }
+          // Chỉ tính booking nếu check_out_date >= hôm nay (booking chưa kết thúc)
+          // Nếu check_out_date < hôm nay → booking đã kết thúc → không tính vào
+          check_out_date: { [Op.gte]: today },
+          [Op.and]: [
+            Sequelize.literal(`check_in_date < '${checkOut.format('YYYY-MM-DD')}'`),
+            Sequelize.literal(`check_out_date > '${checkIn.format('YYYY-MM-DD')}'`)
           ]
         },
-        required: false
-      }]
+        required: true
+      }],
+      attributes: ['room_id', 'booking_id'],
+      raw: false
     });
 
-    // Lọc ra các phòng chưa được đặt
-    const freeRooms = availableRooms.filter(room => !room.bookings || room.bookings.length === 0);
+    console.log(`[ROOM_AVAILABILITY] Checking room_type_id: ${room_type_id}, dates: ${checkIn.format('YYYY-MM-DD')} to ${checkOut.format('YYYY-MM-DD')}`);
+    console.log(`[ROOM_AVAILABILITY] Found ${bookedRoomDetails.length} active BookingRoom entries:`);
+    bookedRoomDetails.forEach(br => {
+      const booking = br.booking;
+      console.log(`  - room_id: ${br.room_id}, booking_id: ${booking.booking_id}, status: ${booking.booking_status}, dates: ${booking.check_in_date} to ${booking.check_out_date}`);
+    });
 
-    if (freeRooms.length === 0) {
-      return res.status(400).json({ message: 'Loại phòng này đã hết phòng trống trong khoảng thời gian này' });
+    const bookedRoomIds = bookedRoomDetails.map(br => br.room_id);
+    console.log(`[ROOM_AVAILABILITY] bookedRoomIds (active bookings):`, bookedRoomIds);
+
+    // Lấy tất cả phòng của loại phòng này, loại trừ các phòng đã được đặt vĩnh viễn
+    // QUAN TRỌNG: 
+    // - Phòng có status 'available', 'checked_out', 'cleaning' luôn có thể đặt
+    // - Phòng có status 'booked' nhưng không có booking active trong khoảng thời gian này 
+    //   (đã check-out rồi nhưng admin chưa cập nhật status) → cũng có thể đặt
+    // - Phòng có status 'in_use' → không thể đặt (đang có khách ở)
+    
+    // Bước 1: Lấy tất cả phòng của loại này (không filter status)
+    const allRoomsOfType = await Room.findAll({
+      where: { room_type_id },
+      attributes: ['room_id', 'room_num', 'status']
+    });
+    console.log(`[ROOM_AVAILABILITY] All rooms of type ${room_type_id}:`, allRoomsOfType.map(r => ({ room_id: r.room_id, room_num: r.room_num, status: r.status })));
+
+    // Bước 2: Filter theo status và loại trừ bookedRoomIds
+    const whereClause = { 
+      room_type_id,
+      status: { [Op.in]: ['available', 'checked_out', 'cleaning', 'booked'] } // Bao gồm cả 'booked' vì có thể đã check-out
+    };
+    // Loại trừ các phòng đã được đặt vĩnh viễn (confirmed hoặc checked_in) trong khoảng thời gian này
+    // Phòng 'booked' nhưng booking đã check-out sẽ KHÔNG nằm trong bookedRoomIds → được tính vào
+    if (bookedRoomIds.length > 0) {
+      whereClause.room_id = { [Op.notIn]: bookedRoomIds };
+    }
+
+    const freeRooms = await Room.findAll({
+      where: whereClause
+    });
+
+    console.log(`[ROOM_AVAILABILITY] freeRooms count: ${freeRooms.length}, details:`, freeRooms.map(r => ({ room_id: r.room_id, room_num: r.room_num, status: r.status })));
+
+    // 2. Tìm các phòng đang được giữ tạm thời trong Redis (CHỈ TÍNH CÁC PHÒNG THỰC SỰ TRỐNG TRONG DB)
+    // QUAN TRỌNG: Chỉ tính temp bookings cho các phòng mà thực sự còn trống trong DB
+    // Logic: Kiểm tra lại số phòng đã được đặt vĩnh viễn DỰA TRÊN THỜI GIAN CỦA TEMP BOOKING
+    // Nếu temp booking trùng với booking đã được đặt vĩnh viễn (check-out rồi), thì không tính
+    let heldRoomsCount = 0;
+    try {
+      const allTempBookings = await redisService.getAllTempBookings();
+      const overlappingTempBookings = Object.values(allTempBookings || {}).filter(tb => {
+        if (!tb || !tb.room_type_id || !tb.check_in_date || !tb.check_out_date) return false;
+        // Chỉ tính các temp booking khác (không phải của user hiện tại đang tạo)
+        if (tb.user_id === user_id) return false; // Bỏ qua temp booking của chính user này
+        if (tb.room_type_id !== room_type_id) return false;
+        // Kiểm tra trùng khoảng thời gian
+        const tbCheckIn = moment(tb.check_in_date);
+        const tbCheckOut = moment(tb.check_out_date);
+        return tbCheckIn.isBefore(checkOut) && tbCheckOut.isAfter(checkIn);
+      });
+      
+      // QUAN TRỌNG: Kiểm tra lại số phòng đã được đặt vĩnh viễn CHO TỪNG TEMP BOOKING
+      // Để xem temp booking đó có còn hợp lệ không (phòng có thực sự còn trống không)
+      // Logic: Nếu temp booking đang giữ X phòng, nhưng chỉ còn Y phòng trống (< X),
+      // thì temp booking đó không hợp lệ (phòng đã được đặt vĩnh viễn hoặc check-out rồi)
+      let validHeldRoomsCount = 0;
+      for (const tb of overlappingTempBookings) {
+        const tbCheckIn = moment(tb.check_in_date);
+        const tbCheckOut = moment(tb.check_out_date);
+        const tbNumRooms = Number(tb.num_rooms) || 1;
+        
+          // Kiểm tra số phòng đã được đặt vĩnh viễn trong khoảng thời gian của temp booking này
+          // QUAN TRỌNG: Chỉ tính booking nếu check_out_date >= hôm nay (booking chưa kết thúc)
+          const today = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD');
+          const tbBookedRoomIds = await BookingRoom.findAll({
+            include: [{
+              model: Booking,
+              as: 'booking',
+              where: {
+                booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
+                check_out_date: { [Op.gte]: today }, // Chỉ tính booking chưa kết thúc
+                [Op.and]: [
+                  Sequelize.literal(`check_in_date < '${tbCheckOut.format('YYYY-MM-DD')}'`),
+                  Sequelize.literal(`check_out_date > '${tbCheckIn.format('YYYY-MM-DD')}'`)
+                ]
+              },
+              required: true
+            }],
+            attributes: ['room_id'],
+            raw: true
+          }).then(results => results.map(r => r.room_id));
+        
+        // Số phòng trống cho temp booking này (đã loại trừ phòng đã được đặt vĩnh viễn)
+        // QUAN TRỌNG: Bao gồm cả phòng 'booked' nếu không có booking active
+        const tbWhereClause = { 
+          room_type_id: tb.room_type_id,
+          status: { [Op.in]: ['available', 'checked_out', 'cleaning', 'booked'] }
+        };
+        if (tbBookedRoomIds.length > 0) {
+          tbWhereClause.room_id = { [Op.notIn]: tbBookedRoomIds };
+        }
+        const tbFreeRoomsCount = await Room.count({ where: tbWhereClause });
+        
+        // QUAN TRỌNG: Chỉ tính temp booking nếu số phòng trống >= số phòng nó đang giữ
+        // Điều này đảm bảo temp booking vẫn hợp lệ (phòng chưa bị đặt vĩnh viễn)
+        if (tbFreeRoomsCount >= tbNumRooms) {
+          validHeldRoomsCount += tbNumRooms;
+        } else {
+          // Temp booking không hợp lệ (phòng đã được đặt vĩnh viễn hoặc check-out rồi)
+          console.log(`[TEMP_BOOKING] Temp booking không hợp lệ: yêu cầu ${tbNumRooms} phòng nhưng chỉ còn ${tbFreeRoomsCount} phòng trống`);
+        }
+      }
+      
+      // QUAN TRỌNG: Không dùng Math.min nữa vì ta đã kiểm tra từng temp booking
+      // Nhưng vẫn cần đảm bảo không vượt quá số phòng trống (phòng trợ cho edge cases)
+      heldRoomsCount = Math.min(validHeldRoomsCount, freeRooms.length);
+      
+      console.log(`[TEMP_BOOKING] freeRooms: ${freeRooms.length}, validHeldRoomsCount: ${validHeldRoomsCount}, heldRoomsCount: ${heldRoomsCount}`);
+    } catch (error) {
+      console.error('Error checking Redis temp bookings:', error);
+      // Nếu Redis lỗi, vẫn tiếp tục nhưng log warning
+    }
+
+    // Tính số phòng thực sự có thể đặt
+    const availableRoomsCount = freeRooms.length - heldRoomsCount;
+
+    // Kiểm tra số lượng phòng trống có đủ không (sau khi trừ phòng đang được giữ trong Redis)
+    if (availableRoomsCount < num_rooms) {
+      const heldInfo = heldRoomsCount > 0 ? ` (${heldRoomsCount} phòng đang được giữ tạm thời bởi khách hàng khác)` : '';
+      return res.status(400).json({ 
+        message: `Không đủ phòng trống. Yêu cầu: ${num_rooms} phòng, hiện có: ${availableRoomsCount} phòng trống trong khoảng thời gian này${heldInfo}`,
+        available_rooms: availableRoomsCount,
+        held_rooms: heldRoomsCount,
+        total_free_rooms: freeRooms.length
+      });
+    }
+
+    if (availableRoomsCount === 0) {
+      return res.status(400).json({ 
+        message: 'Loại phòng này đã hết phòng trống trong khoảng thời gian này',
+        held_rooms: heldRoomsCount,
+        total_free_rooms: freeRooms.length
+      });
     }
 
     // Lấy giá phòng
@@ -99,7 +249,7 @@ exports.createTempBooking = async (req, res) => {
 
     // Tính tổng số đêm
     const nights = checkOut.diff(checkIn, 'days');
-    const roomTotalPrice = roomPrice.price_per_night * nights;
+    const roomTotalPrice = roomPrice.price_per_night * nights * num_rooms;
 
     // Tạo booking tạm thời
     const tempBookingData = {
@@ -108,11 +258,12 @@ exports.createTempBooking = async (req, res) => {
       check_in_date: checkIn.format('YYYY-MM-DD'),
       check_out_date: checkOut.format('YYYY-MM-DD'),
       num_person,
+      num_rooms: Number(num_rooms),
       room_price: roomPrice.price_per_night,
       total_price: roomTotalPrice,
       nights,
       room_type_name: roomType.room_type_name,
-      available_rooms: freeRooms.length
+      available_rooms: availableRoomsCount // Sử dụng availableRoomsCount thay vì freeRooms.length
     };
 
     // Tạo key Redis
@@ -275,15 +426,16 @@ exports.createPaymentLink = async (req, res) => {
     await redisService.saveTempBooking(temp_booking_key, tempBooking);
 
     // Tạo link thanh toán PayOS
+    const num_rooms = tempBooking.num_rooms || 1;
     const paymentData = {
       orderCode,
       amount: finalAmount,
-      description: `Thanh toán đặt phòng ${tempBooking.room_type_name} - ${bookingCode}`,
+      description: `Thanh toán đặt phòng ${tempBooking.room_type_name} (${num_rooms} phòng) - ${bookingCode}`,
       items: [
         {
-          name: `Phòng ${tempBooking.room_type_name}`,
+          name: `Phòng ${tempBooking.room_type_name} (${num_rooms} phòng)`,
           quantity: tempBooking.nights,
-          price: tempBooking.room_price * tempBooking.nights
+          price: tempBooking.room_price * tempBooking.nights * num_rooms
         },
         ...(tempBooking.services?.filter(s => s.payment_type === 'prepaid') || []).map(s => ({
           name: s.service_name,
@@ -365,64 +517,107 @@ exports.handlePaymentWebhook = async (req, res) => {
         existingBooking = await Booking.findOne({ where: { booking_code: bookingCode } });
       }
 
-      // Tự động gán phòng cụ thể từ loại phòng
-      const assignedRoom = await Room.findOne({
-        where: { 
-          room_type_id: tempBooking.room_type_id,
-          status: 'available'
-        },
+      // Tìm các phòng đã được đặt vĩnh viễn trong khoảng thời gian này qua BookingRoom
+      // QUAN TRỌNG: Chỉ tính booking nếu check_out_date >= hôm nay (booking chưa kết thúc)
+      const today = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD');
+      const bookedRoomIds = await BookingRoom.findAll({
         include: [{
           model: Booking,
-          as: 'bookings',
+          as: 'booking',
           where: {
             booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
-            [Op.or]: [
-              {
-                check_in_date: { [Op.lte]: tempBooking.check_out_date },
-                check_out_date: { [Op.gte]: tempBooking.check_in_date }
-              }
+            check_out_date: { [Op.gte]: today }, // Chỉ tính booking chưa kết thúc
+            [Op.and]: [
+              Sequelize.literal(`check_in_date < '${tempBooking.check_out_date}'`),
+              Sequelize.literal(`check_out_date > '${tempBooking.check_in_date}'`)
             ]
           },
-          required: false
-        }]
-      });
+          required: true
+        }],
+        attributes: ['room_id'],
+        raw: true
+      }).then(results => results.map(r => r.room_id));
 
-      // Lọc ra phòng chưa được đặt
-      const availableRooms = await Room.findAll({
-        where: { 
-          room_type_id: tempBooking.room_type_id,
-          status: 'available'
-        },
-        include: [{
-          model: Booking,
-          as: 'bookings',
-          where: {
-            booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
-            [Op.or]: [
-              {
-                check_in_date: { [Op.lte]: tempBooking.check_out_date },
-                check_out_date: { [Op.gte]: tempBooking.check_in_date }
-              }
-            ]
-          },
-          required: false
-        }]
-      });
-
-      const freeRooms = availableRooms.filter(room => !room.bookings || room.bookings.length === 0);
-      
-      if (freeRooms.length === 0) {
-        return res.status(400).json({ message: 'Loại phòng này đã hết phòng trống' });
+      // Lấy phòng trống (loại trừ các phòng đã được đặt vĩnh viễn)
+      // QUAN TRỌNG: Bao gồm cả phòng 'booked' nếu không có booking active
+      const whereClause = { 
+        room_type_id: tempBooking.room_type_id,
+        status: { [Op.in]: ['available', 'checked_out', 'cleaning', 'booked'] } // Bao gồm 'booked' vì có thể đã check-out
+      };
+      if (bookedRoomIds.length > 0) {
+        whereClause.room_id = { [Op.notIn]: bookedRoomIds };
       }
 
-      // Chọn phòng đầu tiên có sẵn
-      const selectedRoom = freeRooms[0];
+      const freeRooms = await Room.findAll({
+        where: whereClause
+      });
 
-      // Tạo booking vĩnh viễn với phòng đã được gán
+      // Tìm các phòng đang được giữ tạm thời trong Redis (CHỈ TÍNH CÁC PHÒNG THỰC SỰ TRỐNG TRONG DB)
+      // QUAN TRỌNG: Chỉ tính temp bookings cho các phòng mà thực sự còn trống trong DB
+      // VÀ QUAN TRỌNG: Bỏ qua temp booking hiện tại đang thanh toán (vì nó sắp được xóa)
+      let heldRoomsCount = 0;
+      try {
+        const allTempBookings = await redisService.getAllTempBookings();
+        
+        // Filter để bỏ qua temp booking hiện tại và chỉ lấy các temp booking khác
+        const overlappingTempBookings = Object.entries(allTempBookings || {}).filter(([key, tb]) => {
+          if (!tb || !tb.room_type_id || !tb.check_in_date || !tb.check_out_date) return false;
+          // Bỏ qua temp booking hiện tại (đang thanh toán) - so sánh key hoặc orderCode
+          if (tempKey && tempKey === key) {
+            console.log(`[WEBHOOK] Bỏ qua temp booking hiện tại: ${key}`);
+            return false;
+          }
+          if (tb.payos_order_code && tb.payos_order_code === orderCode) {
+            console.log(`[WEBHOOK] Bỏ qua temp booking hiện tại theo orderCode: ${orderCode}`);
+            return false;
+          }
+          if (tb.room_type_id !== tempBooking.room_type_id) return false;
+          // Kiểm tra trùng khoảng thời gian
+          const tbCheckIn = moment(tb.check_in_date);
+          const tbCheckOut = moment(tb.check_out_date);
+          const tempCheckIn = moment(tempBooking.check_in_date);
+          const tempCheckOut = moment(tempBooking.check_out_date);
+          return tbCheckIn.isBefore(tempCheckOut) && tbCheckOut.isAfter(tempCheckIn);
+        }).map(([key, tb]) => tb); // Chỉ lấy value, bỏ key
+        
+        // QUAN TRỌNG: Chỉ tính số phòng đang được giữ tối đa bằng số phòng thực sự trống trong DB
+        // Điều này đảm bảo không block các phòng đã được đặt vĩnh viễn
+        const totalHeldRooms = overlappingTempBookings.reduce((sum, tb) => sum + (Number(tb.num_rooms) || 1), 0);
+        heldRoomsCount = Math.min(totalHeldRooms, freeRooms.length);
+        
+        console.log(`[WEBHOOK] Debug - freeRooms: ${freeRooms.length}, totalHeldRooms: ${totalHeldRooms}, heldRoomsCount: ${heldRoomsCount}, tempBooking.num_rooms: ${tempBooking.num_rooms || 1}`);
+      } catch (error) {
+        console.error('Error checking Redis temp bookings in webhook:', error);
+      }
+      
+      // Tính số phòng thực sự có thể đặt
+      // QUAN TRỌNG: Temp booking hiện tại đã được tạo và "giữ chỗ" từ trước
+      // Nên số phòng có sẵn = số phòng trống + số phòng của temp booking hiện tại (vì nó sẽ được giải phóng khi tạo booking vĩnh viễn)
+      const num_rooms = tempBooking.num_rooms || 1;
+      const availableRoomsCount = freeRooms.length - heldRoomsCount + num_rooms; // Cộng lại số phòng của temp booking hiện tại
+      
+      console.log(`[WEBHOOK] Final calculation - freeRooms: ${freeRooms.length}, heldRoomsCount (others): ${heldRoomsCount}, tempBooking rooms: ${num_rooms}, availableRoomsCount: ${availableRoomsCount}`);
+      
+      // Kiểm tra: số phòng có sẵn phải >= số phòng cần (không cần check nữa vì đã cộng lại)
+      // Nhưng vẫn check để đảm bảo an toàn (trường hợp có lỗi logic)
+      if (availableRoomsCount < num_rooms) {
+        return res.status(400).json({ 
+          message: `Không đủ phòng trống. Yêu cầu: ${num_rooms} phòng, hiện có: ${availableRoomsCount} phòng (${heldRoomsCount} phòng đang được giữ tạm thời bởi khách hàng khác)`,
+          available_rooms: availableRoomsCount,
+          held_rooms: heldRoomsCount,
+          total_free_rooms: freeRooms.length,
+          current_booking_rooms: num_rooms
+        });
+      }
+
+      // Chọn đủ số phòng cần thiết
+      const selectedRooms = freeRooms.slice(0, num_rooms);
+
+      // Tạo booking vĩnh viễn (không gán room_id trực tiếp nữa, sẽ dùng BookingRoom)
       const booking = await Booking.create({
         user_id: tempBooking.user_id,
         room_type_id: tempBooking.room_type_id,
-        room_id: selectedRoom.room_id, // Gán phòng cụ thể
+        room_id: null, // Không gán room_id trực tiếp, dùng BookingRoom
         check_in_date: tempBooking.check_in_date,
         check_out_date: tempBooking.check_out_date,
         num_person: tempBooking.num_person,
@@ -433,15 +628,24 @@ exports.handlePaymentWebhook = async (req, res) => {
         booking_type: 'online',
         booking_code: bookingCode,
         payos_order_code: tempBooking.payos_order_code,
-        promotion_id: tempBooking.promotion_id,
-        room_assigned_at: moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss')
+        promotion_id: tempBooking.promotion_id
       });
 
-      // Cập nhật trạng thái phòng thành 'booked'
-      await Room.update(
-        { status: 'booked' },
-        { where: { room_id: selectedRoom.room_id } }
-      );
+      // Tạo BookingRoom cho mỗi phòng được gán
+      const assignTime = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
+      for (const room of selectedRooms) {
+        await BookingRoom.create({
+          booking_id: booking.booking_id,
+          room_id: room.room_id,
+          assigned_at: assignTime
+        });
+
+        // Cập nhật trạng thái phòng thành 'booked'
+        await Room.update(
+          { status: 'booked' },
+          { where: { room_id: room.room_id } }
+        );
+      }
 
       // Tạo booking services
       if (tempBooking.services && tempBooking.services.length > 0) {
@@ -473,11 +677,12 @@ exports.handlePaymentWebhook = async (req, res) => {
 
       // Gửi email xác nhận
       const user = await User.findByPk(tempBooking.user_id);
+      const numRooms = tempBooking.num_rooms || 1;
       if (user && user.email) {
         await sendEmail(
           user.email,
           '🎉 Xác nhận đặt phòng thành công - Hotel Booking',
-          `Chào ${user.full_name},\n\nĐặt phòng của bạn đã được xác nhận thành công!\nMã đặt phòng: ${bookingCode}\n\nChi tiết đặt phòng:\n- Phòng: ${tempBooking.room_type_name}\n- Check-in: ${tempBooking.check_in_date}\n- Check-out: ${tempBooking.check_out_date}\n- Tổng tiền: ${tempBooking.final_amount.toLocaleString('vi-VN')} VNĐ\n\nCảm ơn bạn đã tin tưởng và sử dụng dịch vụ của chúng tôi!\n\nTrân trọng,\nHotel Booking Team`,
+          `Chào ${user.full_name},\n\nĐặt phòng của bạn đã được xác nhận thành công!\nMã đặt phòng: ${bookingCode}\n\nChi tiết đặt phòng:\n- Phòng: ${tempBooking.room_type_name}\n- Số lượng phòng: ${numRooms} phòng\n- Check-in: ${tempBooking.check_in_date}\n- Check-out: ${tempBooking.check_out_date}\n- Tổng tiền: ${tempBooking.final_amount.toLocaleString('vi-VN')} VNĐ\n\nCảm ơn bạn đã tin tưởng và sử dụng dịch vụ của chúng tôi!\n\nTrân trọng,\nHotel Booking Team`,
           `
             <!DOCTYPE html>
             <html lang="vi">
@@ -522,6 +727,10 @@ exports.handlePaymentWebhook = async (req, res) => {
                     <div class="detail-row">
                       <span class="detail-label">Loại phòng:</span>
                       <span class="detail-value">${tempBooking.room_type_name}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-label">Số lượng phòng:</span>
+                      <span class="detail-value"><strong>${numRooms} phòng</strong></span>
                     </div>
                     <div class="detail-row">
                       <span class="detail-label">Ngày nhận phòng:</span>
@@ -598,6 +807,7 @@ exports.createWalkInBooking = async (req, res) => {
       check_in_date, 
       check_out_date, 
       num_person = 1,
+      num_rooms = 1,
       note = '',
       services = []
     } = req.body;
@@ -606,6 +816,13 @@ exports.createWalkInBooking = async (req, res) => {
     if (!user_id || !room_type_id || !check_in_date || !check_out_date) {
       return res.status(400).json({ 
         message: 'Vui lòng nhập đầy đủ thông tin loại phòng và ngày' 
+      });
+    }
+
+    // Kiểm tra số lượng phòng
+    if (!Number.isInteger(Number(num_rooms)) || Number(num_rooms) < 1) {
+      return res.status(400).json({ 
+        message: 'Số lượng phòng phải là số nguyên dương' 
       });
     }
 
@@ -641,26 +858,47 @@ exports.createWalkInBooking = async (req, res) => {
     }
 
     // Kiểm tra loại phòng có còn trống không trong khoảng thời gian này
-    const availableRooms = await Room.findAll({
-      where: { room_type_id },
+    // Tìm các phòng đã được đặt trong khoảng thời gian này qua BookingRoom
+    // QUAN TRỌNG: Chỉ tính booking nếu check_out_date >= hôm nay (booking chưa kết thúc)
+    const today = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD');
+    const bookedRoomIds = await BookingRoom.findAll({
       include: [{
         model: Booking,
-        as: 'bookings',
+        as: 'booking',
         where: {
           booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
-          [Op.or]: [
-            {
-              check_in_date: { [Op.lte]: checkOut.format('YYYY-MM-DD') },
-              check_out_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
-            }
+          check_out_date: { [Op.gte]: today }, // Chỉ tính booking chưa kết thúc
+          [Op.and]: [
+            Sequelize.literal(`check_in_date < '${checkOut.format('YYYY-MM-DD')}'`),
+            Sequelize.literal(`check_out_date > '${checkIn.format('YYYY-MM-DD')}'`)
           ]
         },
-        required: false
-      }]
+        required: true
+      }],
+      attributes: ['room_id'],
+      raw: true
+    }).then(results => results.map(r => r.room_id));
+
+    // Lấy tất cả phòng của loại phòng này, loại trừ các phòng đã được đặt
+    // QUAN TRỌNG: Bao gồm cả phòng 'booked' nếu không có booking active
+    const whereClause = { 
+      room_type_id,
+      status: { [Op.in]: ['available', 'checked_out', 'cleaning', 'booked'] }
+    };
+    if (bookedRoomIds.length > 0) {
+      whereClause.room_id = { [Op.notIn]: bookedRoomIds };
+    }
+
+    const freeRooms = await Room.findAll({
+      where: whereClause
     });
 
-    // Lọc ra các phòng chưa được đặt
-    const freeRooms = availableRooms.filter(room => !room.bookings || room.bookings.length === 0);
+    // Kiểm tra số lượng phòng trống có đủ không
+    if (freeRooms.length < num_rooms) {
+      return res.status(400).json({ 
+        message: `Không đủ phòng trống. Yêu cầu: ${num_rooms} phòng, hiện có: ${freeRooms.length} phòng trống trong khoảng thời gian này` 
+      });
+    }
 
     if (freeRooms.length === 0) {
       return res.status(400).json({ message: 'Loại phòng này đã hết phòng trống trong khoảng thời gian này' });
@@ -682,15 +920,19 @@ exports.createWalkInBooking = async (req, res) => {
 
     // Tính tổng số đêm và giá phòng
     const nights = checkOut.diff(checkIn, 'days');
-    const roomTotalPrice = roomPrice.price_per_night * nights;
+    const roomTotalPrice = roomPrice.price_per_night * nights * num_rooms;
 
     // Tạo booking code
     const bookingCode = payOSService.generateBookingCode();
 
-    // Tạo booking
+    // Chọn đủ số phòng cần thiết từ phòng trống
+    const selectedRooms = freeRooms.slice(0, num_rooms);
+
+    // Tạo booking (không gán room_id trực tiếp, sẽ dùng BookingRoom)
     const booking = await Booking.create({
       user_id,
       room_type_id,
+      room_id: null, // Không gán room_id trực tiếp nữa
       check_in_date: checkIn.format('YYYY-MM-DD'),
       check_out_date: checkOut.format('YYYY-MM-DD'),
       num_person,
@@ -702,6 +944,22 @@ exports.createWalkInBooking = async (req, res) => {
       booking_code: bookingCode,
       note
     });
+
+    // Tạo BookingRoom cho mỗi phòng được gán
+    const assignTime = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
+    for (const room of selectedRooms) {
+      await BookingRoom.create({
+        booking_id: booking.booking_id,
+        room_id: room.room_id,
+        assigned_at: assignTime
+      });
+
+      // Cập nhật trạng thái phòng thành 'booked'
+      await Room.update(
+        { status: 'booked' },
+        { where: { room_id: room.room_id } }
+      );
+    }
 
     // Tạo booking services nếu có
     let servicesTotal = 0;
@@ -743,12 +1001,13 @@ exports.createWalkInBooking = async (req, res) => {
         booking_id: booking.booking_id,
         booking_code: booking.booking_code,
         room_type: roomType.room_type_name,
+        num_rooms: num_rooms,
         check_in_date: booking.check_in_date,
         check_out_date: booking.check_out_date,
         total_price: booking.final_price,
         booking_status: booking.booking_status,
         payment_status: booking.payment_status,
-        available_rooms_remaining: freeRooms.length - 1 // Trừ đi 1 phòng vừa đặt
+        available_rooms_remaining: freeRooms.length - num_rooms // Trừ đi số phòng vừa đặt
       }
     });
 
@@ -775,7 +1034,16 @@ exports.getMyBookings = async (req, res) => {
       where,
       include: [
         { model: RoomType, as: 'room_type', attributes: ['room_type_id', 'room_type_name', 'capacity', 'amenities'] },
-        { model: Room, as: 'room', attributes: ['room_id', 'room_num', 'status'], include: [{ model: RoomType, as: 'room_type', attributes: ['room_type_name'] }] },
+        { 
+          model: BookingRoom, 
+          as: 'booking_rooms',
+          include: [{
+            model: Room,
+            as: 'room',
+            attributes: ['room_id', 'room_num', 'status'],
+            include: [{ model: RoomType, as: 'room_type', attributes: ['room_type_name'] }]
+          }]
+        },
         { model: BookingService, as: 'booking_services', include: [{ model: Service, as: 'service', attributes: ['service_id', 'name', 'price'] }] },
         { model: Promotion, as: 'promotion', attributes: ['promotion_id', 'promotion_code', 'name', 'discount_type', 'amount'] },
         { model: Review, as: 'reviews', attributes: ['review_id'], limit: 1 }
@@ -787,11 +1055,24 @@ exports.getMyBookings = async (req, res) => {
 
     return res.status(200).json({
       message: 'Lấy lịch sử đặt phòng thành công',
-      bookings: result.rows.map(booking => ({
-        booking_id: booking.booking_id,
-        booking_code: booking.booking_code,
-        room_type_name: booking.room_type?.room_type_name,
-        room_num: booking.room?.room_num,
+      bookings: result.rows.map(booking => {
+        // Lấy danh sách phòng từ BookingRoom
+        const rooms = booking.booking_rooms?.map(br => ({
+          room_id: br.room.room_id,
+          room_num: br.room.room_num,
+          status: br.room.status,
+          assigned_at: br.assigned_at
+        })) || [];
+        
+        // Không còn fallback vì không có liên kết trực tiếp Booking-Room nữa
+
+        return {
+          booking_id: booking.booking_id,
+          booking_code: booking.booking_code,
+          room_type_name: booking.room_type?.room_type_name,
+          rooms: rooms, // Danh sách tất cả phòng
+          num_rooms: rooms.length,
+          room_num: rooms.length > 0 ? rooms[0].room_num : null,
         check_in_date: booking.check_in_date,
         check_out_date: booking.check_out_date,
         num_person: booking.num_person,
@@ -822,7 +1103,8 @@ exports.getMyBookings = async (req, res) => {
         review_link: booking.booking_status === 'checked_out' && (!booking.reviews || booking.reviews.length === 0) 
           ? `${process.env.FRONTEND_URL || 'http://localhost:3000'}/review/${booking.booking_code}` 
           : null
-      })),
+        };
+      }),
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(result.count / limit),
@@ -852,7 +1134,17 @@ exports.getBookings = async (req, res) => {
       where,
       include: [
         { model: User, as: 'user', attributes: ['user_id', 'full_name', 'email', 'phone'] },
-        { model: Room, as: 'room', include: [{ model: RoomType, as: 'room_type' }] },
+        { model: RoomType, as: 'room_type', attributes: ['room_type_id', 'room_type_name', 'capacity', 'amenities'] },
+        { 
+          model: BookingRoom, 
+          as: 'booking_rooms',
+          include: [{
+            model: Room,
+            as: 'room',
+            attributes: ['room_id', 'room_num', 'status'],
+            include: [{ model: RoomType, as: 'room_type' }]
+          }]
+        },
         { model: BookingService, as: 'booking_services', include: [{ model: Service, as: 'service' }] }
       ],
       limit: parseInt(limit),
@@ -860,8 +1152,28 @@ exports.getBookings = async (req, res) => {
       order: [['created_at', 'DESC']]
     });
 
+    // Format bookings để thêm thông tin rooms
+    const formattedBookings = result.rows.map(booking => {
+      const bookingObj = booking.toJSON();
+      const rooms = booking.booking_rooms?.map(br => ({
+        room_id: br.room.room_id,
+        room_num: br.room.room_num,
+        status: br.room.status,
+        room_type: br.room.room_type,
+        assigned_at: br.assigned_at
+      })) || [];
+      
+      // Không còn fallback vì không có liên kết trực tiếp Booking-Room nữa
+      
+      return {
+        ...bookingObj,
+        rooms: rooms,
+        num_rooms: rooms.length
+      };
+    });
+
     return res.status(200).json({
-      bookings: result.rows,
+      bookings: formattedBookings,
       pagination: {
         currentPage: parseInt(page),
         totalPages: Math.ceil(result.count / limit),
@@ -884,16 +1196,37 @@ exports.getBookingById = async (req, res) => {
       where: { booking_id: id },
       include: [
         { model: User, as: 'user', attributes: ['user_id', 'full_name', 'email', 'phone'] },
-        { model: Room, as: 'room', include: [{ model: RoomType, as: 'room_type' }] },
+        { 
+          model: BookingRoom, 
+          as: 'booking_rooms',
+          include: [{
+            model: Room,
+            as: 'room',
+            attributes: ['room_id', 'room_num', 'status'],
+            include: [{ model: RoomType, as: 'room_type' }]
+          }]
+        },
         { model: BookingService, as: 'booking_services', include: [{ model: Service, as: 'service' }] },
         { model: Promotion, as: 'promotion' },
-        { model: Payment, as: 'payments', order: [['created_at', 'DESC']] }
+        { model: Payment, as: 'payments', order: [['created_at', 'DESC']] },
+        { model: RoomType, as: 'room_type' }
       ]
     });
 
     if (!booking) {
       return res.status(404).json({ message: 'Không tìm thấy booking' });
     }
+
+    // Lấy danh sách phòng từ BookingRoom
+    const rooms = booking.booking_rooms?.map(br => ({
+      room_id: br.room.room_id,
+        room_num: br.room.room_num,
+        status: br.room.status,
+      room_type: br.room.room_type,
+      assigned_at: br.assigned_at
+    })) || [];
+
+    // Không còn fallback vì không có liên kết trực tiếp Booking-Room nữa
 
     // Format payments để dễ đọc
     const formattedPayments = booking.payments?.map(payment => ({
@@ -919,6 +1252,8 @@ exports.getBookingById = async (req, res) => {
     return res.status(200).json({ 
       booking: {
         ...booking.toJSON(),
+        rooms: rooms, // Danh sách tất cả phòng
+        num_rooms: rooms.length,
         payments: formattedPayments,
         payment_summary: {
           total_paid: totalPaid,
@@ -945,22 +1280,38 @@ exports.findBookingByCode = async (req, res) => {
       include: [
         { model: User, as: 'user', attributes: ['user_id', 'full_name', 'email', 'phone'] },
         { 
-          model: Room, 
-          as: 'room', 
-          attributes: ['room_id', 'room_num'],
-          include: [{ 
-            model: RoomType, 
-            as: 'room_type', 
-            attributes: ['room_type_id', 'room_type_name', 'capacity'] 
+          model: BookingRoom, 
+          as: 'booking_rooms',
+          include: [{
+            model: Room,
+            as: 'room',
+            attributes: ['room_id', 'room_num', 'status'],
+            include: [{
+              model: RoomType,
+              as: 'room_type',
+              attributes: ['room_type_id', 'room_type_name', 'capacity']
+            }]
           }]
         },
-        { model: BookingService, as: 'booking_services', include: [{ model: Service, as: 'service' }] }
+        { model: BookingService, as: 'booking_services', include: [{ model: Service, as: 'service' }] },
+        { model: RoomType, as: 'room_type', attributes: ['room_type_id', 'room_type_name', 'capacity'] }
       ]
     });
 
     if (!booking) {
       return res.status(404).json({ message: 'Không tìm thấy đặt phòng với mã này' });
     }
+
+    // Lấy danh sách phòng từ BookingRoom
+    const rooms = booking.booking_rooms?.map(br => ({
+      room_id: br.room.room_id,
+        room_num: br.room.room_num,
+        status: br.room.status,
+      room_type: br.room.room_type,
+      assigned_at: br.assigned_at
+    })) || [];
+
+    // Không còn fallback vì không có liên kết trực tiếp Booking-Room nữa
 
     return res.status(200).json({
       message: 'Tìm thấy đặt phòng',
@@ -973,14 +1324,13 @@ exports.findBookingByCode = async (req, res) => {
         booking_status: booking.booking_status,
         payment_status: booking.payment_status,
         total_price: booking.total_price,
+        final_price: booking.final_price,
         check_in_time: booking.check_in_time,
         check_out_time: booking.check_out_time,
         user: booking.user,
-        room: {
-          room_id: booking.room.room_id,
-          room_num: booking.room.room_num,
-          room_type: booking.room.room_type
-        },
+        room_type: booking.room_type,
+        rooms: rooms, // Danh sách tất cả phòng của booking
+        num_rooms: rooms.length,
         services: booking.booking_services || []
       }
     });
@@ -991,18 +1341,26 @@ exports.findBookingByCode = async (req, res) => {
   }
 };
 
-// Check-in (phòng đã được gán sẵn hoặc có thể gán mới)
+// Check-in (phòng đã được gán sẵn hoặc có thể gán mới cho walk-in)
 exports.checkIn = async (req, res) => {
   try {
     const { booking_code } = req.params;
-    const { room_id } = req.body || {}; // Optional: để gán phòng mới cho walk-in booking
+    const { room_ids } = req.body || {}; // Optional: để gán phòng mới cho walk-in booking (mảng room_ids)
 
     const booking = await Booking.findOne({
       where: { booking_code },
       include: [
         { model: User, as: 'user', attributes: ['full_name', 'email'] },
         { model: RoomType, as: 'room_type', attributes: ['room_type_name', 'room_type_id'] },
-        { model: Room, as: 'room', attributes: ['room_id', 'room_num'] }
+        { 
+          model: BookingRoom, 
+          as: 'booking_rooms',
+          include: [{
+            model: Room,
+            as: 'room',
+            attributes: ['room_id', 'room_num', 'status']
+          }]
+        }
       ]
     });
     
@@ -1035,74 +1393,119 @@ exports.checkIn = async (req, res) => {
       return res.status(400).json({ message: 'Khách đã check-in rồi' });
     }
 
-    // Nếu booking chưa có phòng (walk-in booking), cần gán phòng mới
-    if (!booking.room_id) {
-      if (!room_id) {
+    // Lấy danh sách phòng từ BookingRoom
+    let bookingRooms = booking.booking_rooms || [];
+    
+    // Nếu không có phòng nào (walk-in booking chưa gán), cần gán phòng mới
+    if (bookingRooms.length === 0) {
+      if (!room_ids || (Array.isArray(room_ids) && room_ids.length === 0)) {
         return res.status(400).json({ 
-          message: 'Phòng chưa được gán. Vui lòng cung cấp room_id để gán phòng',
+          message: 'Phòng chưa được gán. Vui lòng cung cấp room_ids (mảng) để gán phòng',
           room_type_id: booking.room_type_id,
           available_rooms_endpoint: `/api/bookings/available-rooms?room_type_id=${booking.room_type_id}&check_in_date=${booking.check_in_date}&check_out_date=${booking.check_out_date}`
         });
       }
 
-      // Kiểm tra phòng có tồn tại và hợp lệ không
-      const selectedRoom = await Room.findOne({
-        where: { room_id, room_type_id: booking.room_type_id },
+      // Kiểm tra và gán phòng
+      const roomIdArray = Array.isArray(room_ids) ? room_ids : [room_ids];
+      const assignTime = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
+      
+      for (const roomId of roomIdArray) {
+        const selectedRoom = await Room.findOne({
+          where: { room_id: roomId, room_type_id: booking.room_type_id }
+        });
+
+        if (!selectedRoom) {
+          return res.status(404).json({ message: `Không tìm thấy phòng hợp lệ với ID: ${roomId}` });
+        }
+
+        // Kiểm tra conflict qua BookingRoom
+        const conflictingBookingRooms = await BookingRoom.findAll({
+          include: [{
+            model: Booking,
+            as: 'booking',
+            where: {
+              booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
+              [Op.or]: [
+                {
+                  check_in_date: { [Op.lte]: booking.check_out_date },
+                  check_out_date: { [Op.gte]: booking.check_in_date }
+                }
+              ]
+            },
+            required: true
+          }],
+          where: { room_id: roomId }
+        });
+
+        if (conflictingBookingRooms.length > 0) {
+          return res.status(400).json({ message: `Phòng ${selectedRoom.room_num} đã được đặt trong khoảng thời gian này` });
+        }
+
+        // Tạo BookingRoom
+        await BookingRoom.create({
+          booking_id: booking.booking_id,
+          room_id: roomId,
+          assigned_at: assignTime
+        });
+
+        // Cập nhật trạng thái phòng thành 'booked'
+        await Room.update(
+          { status: 'booked' },
+          { where: { room_id: roomId } }
+        );
+      }
+
+      // Reload booking rooms
+      bookingRooms = await BookingRoom.findAll({
+        where: { booking_id: booking.booking_id },
         include: [{
-          model: Booking,
-          as: 'bookings',
-          where: {
-            booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
-            [Op.or]: [
-              {
-                check_in_date: { [Op.lte]: booking.check_out_date },
-                check_out_date: { [Op.gte]: booking.check_in_date }
-              }
-            ]
-          },
-          required: false
+          model: Room,
+          as: 'room',
+          attributes: ['room_id', 'room_num', 'status']
         }]
       });
-
-      if (!selectedRoom) {
-        return res.status(404).json({ message: 'Không tìm thấy phòng hợp lệ' });
-      }
-
-      // Kiểm tra phòng có trống không
-      if (selectedRoom.bookings && selectedRoom.bookings.length > 0) {
-        return res.status(400).json({ message: 'Phòng này đã được đặt trong khoảng thời gian này' });
-      }
-
-      // Gán phòng cho booking
-      booking.room_id = room_id;
-      await booking.save();
-
-      // Cập nhật trạng thái phòng thành 'booked' khi gán phòng
-      await Room.update(
-        { status: 'booked' },
-        { where: { room_id: room_id } }
-      );
     }
 
     // Cập nhật thời gian check-in và trạng thái
-    booking.check_in_time = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
+    const checkInTime = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
+    booking.check_in_time = checkInTime;
     booking.booking_status = 'checked_in';
     await booking.save();
 
-    // Cập nhật trạng thái phòng thành 'in_use'
-    await Room.update(
-      { status: 'in_use' },
-      { where: { room_id: booking.room_id } }
-    );
+    // Cập nhật trạng thái tất cả phòng thành 'in_use'
+    // Lấy room_id từ bookingRooms (có thể là từ include hoặc từ raw data)
+    const roomIds = bookingRooms.map(br => {
+      // Nếu br là sequelize object với include room, dùng br.room.room_id
+      // Nếu br đã có room_id trực tiếp, dùng br.room_id
+      return br.room ? br.room.room_id : br.room_id;
+    }).filter(id => id != null);
+    
+    if (roomIds.length > 0) {
+      await Room.update(
+        { status: 'in_use' },
+        { where: { room_id: { [Op.in]: roomIds } } }
+      );
+    }
+
+    // Lấy thông tin phòng để trả về
+    const roomsInfo = bookingRooms.map(br => {
+      const room = br.room || br;
+      return {
+        room_id: room.room_id || br.room_id,
+        room_num: room.room_num,
+        assigned_at: br.assigned_at
+      };
+    });
 
     return res.status(200).json({ 
       message: 'Check-in thành công',
       booking_code: booking.booking_code,
       guest_name: booking.user.full_name,
       room_type: booking.room_type.room_type_name,
-      room_number: booking.room.room_num,
-      check_in_time: booking.check_in_time,
-      room_assigned_at: booking.room_assigned_at,
+      rooms: roomsInfo, // Danh sách tất cả phòng
+      num_rooms: roomsInfo.length,
+      check_in_time: checkInTime,
       statusCode: 200
     });
 
@@ -1132,27 +1535,40 @@ exports.getAvailableRoomsForType = async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy loại phòng' });
     }
 
-    // Lấy tất cả phòng của loại phòng này
-    const allRooms = await Room.findAll({
-      where: { room_type_id },
+    // Tìm các phòng đã được đặt trong khoảng thời gian này qua BookingRoom
+    // QUAN TRỌNG: Chỉ tính booking nếu check_out_date >= hôm nay (booking chưa kết thúc)
+    const today = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD');
+    const bookedRoomIds = await BookingRoom.findAll({
       include: [{
         model: Booking,
-        as: 'bookings',
+        as: 'booking',
         where: {
           booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
-          [Op.or]: [
-            {
-              check_in_date: { [Op.lte]: checkOut.format('YYYY-MM-DD') },
-              check_out_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
-            }
+          check_out_date: { [Op.gte]: today }, // Chỉ tính booking chưa kết thúc
+          [Op.and]: [
+            Sequelize.literal(`check_in_date < '${checkOut.format('YYYY-MM-DD')}'`),
+            Sequelize.literal(`check_out_date > '${checkIn.format('YYYY-MM-DD')}'`)
           ]
         },
-        required: false
-      }]
-    });
+        required: true
+      }],
+      attributes: ['room_id'],
+      raw: true
+    }).then(results => results.map(r => r.room_id));
 
-    // Lọc ra các phòng trống
-    const availableRooms = allRooms.filter(room => !room.bookings || room.bookings.length === 0);
+    // Lấy tất cả phòng của loại phòng này, loại trừ các phòng đã được đặt
+    // QUAN TRỌNG: Bao gồm cả phòng 'booked' nếu không có booking active
+    const whereClause = { 
+      room_type_id,
+      status: { [Op.in]: ['available', 'checked_out', 'cleaning', 'booked'] }
+    };
+    if (bookedRoomIds.length > 0) {
+      whereClause.room_id = { [Op.notIn]: bookedRoomIds };
+    }
+
+    const availableRooms = await Room.findAll({
+      where: whereClause
+    });
 
     return res.status(200).json({
       message: 'Danh sách phòng trống',
@@ -1166,7 +1582,6 @@ exports.getAvailableRoomsForType = async (req, res) => {
       rooms: availableRooms.map(room => ({
         room_id: room.room_id,
         room_num: room.room_num,
-        floor: room.floor,
         status: 'available'
       }))
     });
@@ -1187,7 +1602,15 @@ exports.checkOut = async (req, res) => {
       include: [
         { model: User, as: 'user', attributes: ['full_name', 'email'] },
         { model: RoomType, as: 'room_type', attributes: ['room_type_name'] },
-        { model: Room, as: 'room', attributes: ['room_id', 'room_num'] }
+        {
+          model: BookingRoom,
+          as: 'booking_rooms',
+          include: [{
+            model: Room,
+            as: 'room',
+            attributes: ['room_id', 'room_num']
+          }]
+        }
       ]
     });
     if (!booking) {
@@ -1215,11 +1638,17 @@ exports.checkOut = async (req, res) => {
     booking.payment_status = 'paid'; // Cập nhật payment_status thành paid khi check-out
     await booking.save();
 
-    // Cập nhật trạng thái phòng thành 'checked_out'
-    await Room.update(
-      { status: 'checked_out' },
-      { where: { room_id: booking.room_id } }
-    );
+    // Cập nhật trạng thái tất cả phòng thành 'checked_out' (từ booking_rooms)
+    const bookingRoomsToCheckOut = await BookingRoom.findAll({
+      where: { booking_id: booking.booking_id }
+    });
+    if (bookingRoomsToCheckOut.length > 0) {
+      const roomIds = bookingRoomsToCheckOut.map(br => br.room_id);
+      await Room.update(
+        { status: 'checked_out' },
+        { where: { room_id: { [Op.in]: roomIds } } }
+      );
+    }
 
     // Gửi email mời đánh giá
     try {
@@ -1252,8 +1681,16 @@ exports.cancelBooking = async (req, res) => {
 
     const booking = await Booking.findByPk(id, {
       include: [
-        { model: Room, as: 'room' },
-        { model: RoomType, as: 'room_type' }
+        { model: RoomType, as: 'room_type' },
+        {
+          model: BookingRoom,
+          as: 'booking_rooms',
+          include: [{
+            model: Room,
+            as: 'room',
+            attributes: ['room_id', 'room_num', 'status']
+          }]
+        }
       ]
     });
 
@@ -1342,11 +1779,15 @@ exports.cancelBooking = async (req, res) => {
       booking.note = booking.note ? `${booking.note}\nHủy: ${reason}` : `Hủy: ${reason}`;
       await booking.save();
 
-      // Giải phóng phòng nếu đã được gán
-      if (booking.room_id) {
+      // Giải phóng tất cả phòng nếu đã được gán (từ booking_rooms)
+      const bookingRoomsToRelease = await BookingRoom.findAll({
+        where: { booking_id: booking.booking_id }
+      });
+      if (bookingRoomsToRelease.length > 0) {
+        const roomIds = bookingRoomsToRelease.map(br => br.room_id);
         await Room.update(
           { status: 'available' },
-          { where: { room_id: booking.room_id } }
+          { where: { room_id: { [Op.in]: roomIds } } }
         );
       }
 
@@ -1385,10 +1826,15 @@ exports.cancelBooking = async (req, res) => {
       booking.note = booking.note ? `${booking.note}\nHủy: ${reason}` : `Hủy: ${reason}`;
       await booking.save();
 
-      if (booking.room_id) {
+      // Giải phóng tất cả phòng nếu đã được gán (từ booking_rooms)
+      const bookingRoomsToRelease = await BookingRoom.findAll({
+        where: { booking_id: booking.booking_id }
+      });
+      if (bookingRoomsToRelease.length > 0) {
+        const roomIds = bookingRoomsToRelease.map(br => br.room_id);
         await Room.update(
           { status: 'available' },
-          { where: { room_id: booking.room_id } }
+          { where: { room_id: { [Op.in]: roomIds } } }
         );
       }
 
@@ -1417,8 +1863,16 @@ exports.cancelBookingAdmin = async (req, res) => {
 
     const booking = await Booking.findByPk(id, {
       include: [
-        { model: Room, as: 'room' },
-        { model: RoomType, as: 'room_type' }
+        { model: RoomType, as: 'room_type' },
+        {
+          model: BookingRoom,
+          as: 'booking_rooms',
+          include: [{
+            model: Room,
+            as: 'room',
+            attributes: ['room_id', 'room_num', 'status']
+          }]
+        }
       ]
     });
 
@@ -1443,14 +1897,17 @@ exports.cancelBookingAdmin = async (req, res) => {
 
     await booking.save();
 
-    // Giải phóng phòng
-    if (booking.room_id) {
+    // Giải phóng tất cả phòng (từ booking_rooms)
+    const bookingRoomsToRelease = await BookingRoom.findAll({
+      where: { booking_id: booking.booking_id }
+    });
+    if (bookingRoomsToRelease.length > 0) {
+      const roomIds = bookingRoomsToRelease.map(br => br.room_id);
       await Room.update(
         { status: 'available' },
-        { where: { room_id: booking.room_id } }
+        { where: { room_id: { [Op.in]: roomIds } } }
       );
     }
-
     return res.status(200).json({ 
       message: 'Admin hủy booking thành công',
       refund_manually,
@@ -1592,7 +2049,16 @@ exports.generateInvoicePDF = async (req, res) => {
       where: { booking_id: id },
       include: [
         { model: User, as: 'user' },
-        { model: Room, as: 'room', include: [{ model: RoomType, as: 'room_type' }] },
+        { model: RoomType, as: 'room_type', attributes: ['room_type_id', 'room_type_name'] },
+        {
+          model: BookingRoom,
+          as: 'booking_rooms',
+          include: [{
+            model: Room,
+            as: 'room',
+            attributes: ['room_id', 'room_num']
+          }]
+        },
         { model: BookingService, as: 'booking_services', include: [{ model: Service, as: 'service' }] }
       ]
     });
@@ -1612,11 +2078,12 @@ exports.generateInvoicePDF = async (req, res) => {
 
     // Thêm phòng vào hóa đơn
     const nights = moment(booking.check_out_date).diff(moment(booking.check_in_date), 'days');
-    const roomPrice = booking.total_price / nights;
+    const numRooms = booking.booking_rooms?.length || 1;
+    const roomPrice = booking.total_price / (nights * numRooms);
     
     invoiceData.items.push({
-      name: `Phòng ${booking.room?.room_type?.room_type_name || 'N/A'}`,
-      quantity: nights,
+      name: `Phòng ${booking.room_type?.room_type_name || 'N/A'} (${numRooms} phòng)`,
+      quantity: nights * numRooms,
       unitPrice: roomPrice,
       total: booking.total_price
     });
@@ -1686,7 +2153,16 @@ exports.viewInvoice = async (req, res) => {
       where: { booking_id: id },
       include: [
         { model: User, as: 'user' },
-        { model: Room, as: 'room', include: [{ model: RoomType, as: 'room_type' }] },
+        { model: RoomType, as: 'room_type', attributes: ['room_type_id', 'room_type_name'] },
+        {
+          model: BookingRoom,
+          as: 'booking_rooms',
+          include: [{
+            model: Room,
+            as: 'room',
+            attributes: ['room_id', 'room_num']
+          }]
+        },
         { model: BookingService, as: 'booking_services', include: [{ model: Service, as: 'service' }] }
       ]
     });
@@ -1705,11 +2181,12 @@ exports.viewInvoice = async (req, res) => {
     };
 
     const nights = moment(booking.check_out_date).diff(moment(booking.check_in_date), 'days');
-    const roomPrice = booking.total_price / nights;
+    const numRooms = booking.booking_rooms?.length || 1;
+    const roomPrice = booking.total_price / (nights * numRooms);
     
     invoiceData.items.push({
-      name: `Phòng ${booking.room?.room_type?.room_type_name || 'N/A'}`,
-      quantity: nights,
+      name: `Phòng ${booking.room_type?.room_type_name || 'N/A'} (${numRooms} phòng)`,
+      quantity: nights * numRooms,
       unitPrice: roomPrice,
       total: booking.total_price
     });
@@ -1877,21 +2354,25 @@ exports.createWalkInAndCheckIn = async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy loại phòng' });
     }
 
-    // Kiểm tra phòng có bị conflict không
-    const conflictingBooking = await Booking.findOne({
-      where: {
-        room_id,
-        booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
-        [Op.or]: [
-          {
-            check_in_date: { [Op.lte]: checkOut.format('YYYY-MM-DD') },
-            check_out_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
-          }
-        ]
-      }
+    // Kiểm tra phòng có bị conflict không (kiểm tra qua BookingRoom)
+    const conflictingBookingRooms = await BookingRoom.findAll({
+      include: [{
+        model: Booking,
+        as: 'booking',
+        where: {
+          booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
+          [Op.or]: [
+            {
+              check_in_date: { [Op.lte]: checkOut.format('YYYY-MM-DD') },
+              check_out_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
+            }
+          ]
+        }
+      }],
+      where: { room_id }
     });
 
-    if (conflictingBooking) {
+    if (conflictingBookingRooms.length > 0) {
       return res.status(400).json({ message: 'Phòng đã được đặt trong khoảng thời gian này' });
     }
 
@@ -1915,11 +2396,11 @@ exports.createWalkInAndCheckIn = async (req, res) => {
     // Tạo booking code
     const bookingCode = payOSService.generateBookingCode();
 
-    // Tạo booking với status confirmed và payment_status pending
+    // Tạo booking với status confirmed và payment_status pending (không gán room_id trực tiếp)
     const booking = await Booking.create({
       user_id,
       room_type_id: room.room_type_id,
-      room_id: room_id,
+      room_id: null, // Không gán room_id trực tiếp, dùng BookingRoom
       check_in_date: checkInDate,
       check_out_date: checkOutDate,
       num_person,
@@ -1931,6 +2412,14 @@ exports.createWalkInAndCheckIn = async (req, res) => {
       booking_code: bookingCode,
       note,
       check_in_time: moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss') // Check-in luôn
+    });
+
+    // Tạo BookingRoom để gán phòng
+    const assignTime = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
+    await BookingRoom.create({
+      booking_id: booking.booking_id,
+      room_id: room_id,
+      assigned_at: assignTime
     });
 
     // Cập nhật trạng thái booking thành checked_in

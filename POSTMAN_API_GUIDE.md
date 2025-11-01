@@ -1136,10 +1136,28 @@ INSERT INTO booking_services (
 ### 9.1. LUỒNG 1: ĐẶT PHÒNG TRỰC TUYẾN (ONLINE)
 
 **Luồng hoạt động mới:**
-1. **Khách đặt phòng:** Chọn loại phòng (room_type_id) - không phải phòng cụ thể
-2. **Thanh toán thành công:** Hệ thống tự động gán phòng cụ thể từ loại phòng đã đặt
-3. **Check-in:** Lễ tân sử dụng booking_code để xác nhận với phòng đã được gán sẵn
+1. **Khách đặt phòng:** Chọn loại phòng (room_type_id) và số lượng phòng (num_rooms) - không phải phòng cụ thể
+2. **Thanh toán thành công:** Hệ thống tự động gán các phòng cụ thể từ loại phòng đã đặt (một booking có thể có nhiều phòng)
+3. **Check-in:** Lễ tân sử dụng booking_code để xác nhận, hệ thống hiển thị tất cả phòng đã được gán
 4. **Check-out:** Lễ tân sử dụng booking_code để hoàn tất quá trình
+
+**Lưu ý quan trọng:**
+- **Một booking có thể đặt nhiều phòng:** Thêm trường `num_rooms` vào request body
+- **Một booking chỉ thanh toán một lần:** Tổng giá = giá 1 phòng × số đêm × num_rooms
+- **Check-in bằng một booking code:** Khi check-in với booking code, hệ thống hiển thị tất cả phòng đã được gán
+
+**📊 Bảng so sánh: Đặt 1 phòng vs Đặt nhiều phòng**
+
+| Tính năng | Đặt 1 phòng | Đặt nhiều phòng (3 phòng) |
+|-----------|-------------|----------------------------|
+| **Request body** | `num_rooms: 1` (hoặc bỏ qua) | `num_rooms: 3` |
+| **Giá phòng** | 500,000 VNĐ/đêm × 2 đêm = 1,000,000 VNĐ | 500,000 VNĐ/đêm × 2 đêm × 3 = 3,000,000 VNĐ |
+| **Kiểm tra phòng trống** | Cần 1 phòng trống | Cần 3 phòng trống |
+| **Booking code** | `AEWQAS` | `AEWQAS` (1 mã cho tất cả) |
+| **Số phòng gán** | 1 phòng (ví dụ: 101) | 3 phòng (ví dụ: 101, 102, 103) |
+| **Check-in** | Hiển thị 1 phòng | Hiển thị 3 phòng trong mảng `rooms` |
+| **Thanh toán** | 1 lần: 1,000,000 VNĐ | 1 lần: 3,000,000 VNĐ |
+| **Response check-in** | `{"room_num": 101}` | `{"rooms": [{"room_num": 101}, {"room_num": 102}, {"room_num": 103}]}` |
 
 #### 9.1.1. Giữ chỗ tạm thời (Redis)
 - **POST** `http://localhost:5000/api/bookings/temp-booking`
@@ -1150,10 +1168,20 @@ INSERT INTO booking_services (
     "room_type_id": 1,
     "check_in_date": "2024-01-15",
     "check_out_date": "2024-01-17",
-    "num_person": 2
+    "num_person": 2,
+    "num_rooms": 3
   }
   ```
-- **Response:**
+- **Lưu ý:** 
+  - `num_rooms`: Số lượng phòng muốn đặt (mặc định: 1)
+  - **Redis TTL:** Booking tạm thời được lưu trong Redis với thời gian hết hạn **30 phút (1800 giây)**
+  - **Kiểm tra phòng trống:** 
+    - Hệ thống kiểm tra số phòng thực sự trống trong database (đã loại trừ các phòng đã được đặt vĩnh viễn)
+    - Sau đó trừ đi số phòng đang được giữ tạm thời bởi các khách hàng khác trong Redis (chỉ tính các phòng thực sự còn trống)
+    - Đảm bảo không block các phòng đã được đặt vĩnh viễn hoặc phòng của chính user hiện tại
+  - **Giá:** Sẽ được tính = giá 1 phòng × số đêm × num_rooms
+  - **Tự động giải phóng:** Nếu không thanh toán trong 30 phút, Redis tự động xóa temp booking và phòng sẽ được giải phóng
+- **Response (đặt 1 phòng):**
   ```json
   {
     "message": "Giữ chỗ tạm thời thành công",
@@ -1165,14 +1193,51 @@ INSERT INTO booking_services (
       "check_in_date": "2024-01-15",
       "check_out_date": "2024-01-17",
       "num_person": 2,
+      "num_rooms": 1,
       "room_price": 500000,
       "total_price": 1000000,
       "nights": 2,
-      "room_type_name": "Deluxe"
+      "room_type_name": "Deluxe",
+      "available_rooms": 5
     },
     "statusCode": 200
   }
   ```
+- **Response (đặt 3 phòng):**
+  ```json
+  {
+    "message": "Giữ chỗ tạm thời thành công",
+    "temp_booking_key": "temp_booking:2:1:2024-01-15:2024-01-17:20240115143022",
+    "expires_in": 1800,
+    "booking_data": {
+      "user_id": 2,
+      "room_type_id": 1,
+      "check_in_date": "2024-01-15",
+      "check_out_date": "2024-01-17",
+      "num_person": 6,
+      "num_rooms": 3,
+      "room_price": 500000,
+      "total_price": 3000000,
+      "nights": 2,
+      "room_type_name": "Deluxe",
+      "available_rooms": 5
+    },
+    "statusCode": 200
+  }
+  ```
+- **Lỗi khi không đủ phòng:**
+  ```json
+  {
+    "message": "Không đủ phòng trống. Yêu cầu: 5 phòng, hiện có: 3 phòng trống trong khoảng thời gian này (2 phòng đang được giữ tạm thời bởi khách hàng khác)",
+    "available_rooms": 3,
+    "held_rooms": 2,
+    "total_free_rooms": 5,
+    "statusCode": 400
+  }
+  ```
+  - `available_rooms`: Số phòng thực sự có thể đặt (đã trừ phòng đang được giữ)
+  - `held_rooms`: Số phòng đang được giữ tạm thời bởi các khách hàng khác trong Redis
+  - `total_free_rooms`: Tổng số phòng trống trong database (chưa trừ phòng đang được giữ)
 
 #### 9.1.2. Thêm dịch vụ vào booking tạm thời
 - **POST** `http://localhost:5000/api/bookings/temp-booking/add-service`
@@ -1242,10 +1307,259 @@ INSERT INTO booking_services (
     "buyerEmail": "nguyenvana@email.com"
   }
   ```
+- **Lưu ý:** 
+  - Khi thanh toán thành công, hệ thống sẽ tự động gán các phòng (số lượng = `num_rooms`)
+  - **Logic xử lý:**
+    - Temp booking hiện tại sẽ được bỏ qua khi tính số phòng đang được giữ (vì nó sắp được xóa)
+    - Số phòng có sẵn = số phòng trống trong DB - số phòng đang được giữ bởi temp bookings khác + số phòng của temp booking hiện tại
+    - Đảm bảo user có thể thanh toán thành công cho temp booking đã được tạo trước đó
+  - Tất cả phòng sẽ được lưu vào bảng `booking_rooms`
+  - Booking sẽ có một `booking_code` duy nhất để check-in tất cả phòng
+  - Temp booking trong Redis sẽ bị xóa ngay sau khi tạo booking vĩnh viễn
+
+#### 9.1.5. 📌 VÍ DỤ CHI TIẾT: ĐẶT NHIỀU PHÒNG
+
+##### Ví dụ 1: Đặt 3 phòng đơn (Deluxe) cho gia đình
+
+**Bước 1: Đăng nhập**
+```bash
+POST /api/auth/login
+{
+  "email": "customer@example.com",
+  "password": "password123"
+}
+```
+→ Lưu `token`
+
+**Bước 2: Giữ chỗ tạm thời (3 phòng)**
+```bash
+POST /api/bookings/temp-booking
+Headers: Authorization: Bearer {token}
+{
+  "room_type_id": 1,
+  "check_in_date": "2024-12-25",
+  "check_out_date": "2024-12-27",
+  "num_person": 6,
+  "num_rooms": 3
+}
+```
+- **Giải thích:** 
+  - Đặt 3 phòng Deluxe
+  - 6 người (2 người/phòng)
+  - 2 đêm (25/12 → 27/12)
+  - Giá: 500,000 VNĐ/đêm/phòng × 2 đêm × 3 phòng = 3,000,000 VNĐ
+
+**Response:**
+```json
+{
+  "message": "Giữ chỗ tạm thời thành công",
+  "temp_booking_key": "temp_booking:2:1:2024-12-25:2024-12-27:20241215143022",
+  "expires_in": 1800,
+  "booking_data": {
+    "user_id": 2,
+    "room_type_id": 1,
+    "check_in_date": "2024-12-25",
+    "check_out_date": "2024-12-27",
+    "num_person": 6,
+    "num_rooms": 3,
+    "room_price": 500000,
+    "total_price": 3000000,
+    "nights": 2,
+    "room_type_name": "Deluxe",
+    "available_rooms": 10
+  }
+}
+```
+
+**Bước 3: Tạo link thanh toán**
+```bash
+POST /api/bookings/create-payment-link
+Headers: Authorization: Bearer {token}
+{
+  "temp_booking_key": "temp_booking:2:1:2024-12-25:2024-12-27:20241215143022"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Tạo link thanh toán thành công",
+  "payment_url": "https://pay.payos.vn/web/...",
+  "booking_code": "AEWQAS",
+  "amount": 3000000,
+  "statusCode": 200
+}
+```
+→ **Lưu booking_code: `AEWQAS`** (mã này dùng để check-in tất cả 3 phòng)
+
+**Bước 4: Thanh toán (webhook)**
+```bash
+POST /api/bookings/payment-webhook
+{
+  "orderCode": 1705312222001,
+  "status": "PAID"
+}
+```
+
+**Sau thanh toán, hệ thống tự động:**
+- Tạo 1 booking với `booking_code: "AEWQAS"`
+- Gán 3 phòng cụ thể (ví dụ: phòng 101, 102, 103)
+- Tạo 3 records trong `booking_rooms`
+
+**Bước 5: Check-in tại khách sạn**
+```bash
+GET /api/bookings/code/AEWQAS
+Headers: Authorization: Bearer {admin_token}
+```
+
+**Response:**
+```json
+{
+  "message": "Tìm thấy đặt phòng",
+  "booking": {
+    "booking_code": "AEWQAS",
+    "num_rooms": 3,
+    "rooms": [
+      {
+        "room_id": 1,
+        "room_num": 101,
+        "status": "booked"
+      },
+      {
+        "room_id": 2,
+        "room_num": 102,
+        "status": "booked"
+      },
+      {
+        "room_id": 3,
+        "room_num": 103,
+        "status": "booked"
+      }
+    ]
+  }
+}
+```
+
+**Check-in:**
+```bash
+POST /api/bookings/AEWQAS/check-in
+Headers: Authorization: Bearer {admin_token}
+```
+
+**Response:**
+```json
+{
+  "message": "Check-in thành công",
+  "booking_code": "AEWQAS",
+  "guest_name": "Nguyễn Văn A",
+  "rooms": [
+    { "room_num": 101 },
+    { "room_num": 102 },
+    { "room_num": 103 }
+  ],
+  "num_rooms": 3,
+  "check_in_time": "2024-12-25 14:30:00"
+}
+```
+
+**👉 Kết quả:** Khách được đưa lên 3 phòng 101, 102, 103 với cùng 1 mã booking `AEWQAS`
+
+---
+
+##### Ví dụ 2: Đặt 2 phòng cho nhóm bạn
+
+**Request:**
+```json
+{
+  "room_type_id": 2,
+  "check_in_date": "2024-12-20",
+  "check_out_date": "2024-12-22",
+  "num_person": 4,
+  "num_rooms": 2
+}
+```
+
+**Tính toán:**
+- Giá: 800,000 VNĐ/đêm/phòng × 2 đêm × 2 phòng = 3,200,000 VNĐ
+- Thanh toán 1 lần: 3,200,000 VNĐ
+- Check-in với 1 mã booking code
+- Nhận 2 phòng (ví dụ: 201, 202)
+
+---
+
+##### Ví dụ 3: Lỗi khi không đủ phòng
+
+**Request:**
+```json
+{
+  "room_type_id": 1,
+  "check_in_date": "2024-12-25",
+  "check_out_date": "2024-12-27",
+  "num_rooms": 10
+}
+```
+
+**Response (lỗi):**
+```json
+{
+  "message": "Không đủ phòng trống. Yêu cầu: 10 phòng, hiện có: 5 phòng trống trong khoảng thời gian này",
+  "statusCode": 400
+}
+```
+
+**Giải thích:** 
+- Khách muốn đặt 10 phòng
+- Nhưng chỉ còn 5 phòng trống
+- Hệ thống từ chối và báo lỗi
+
+---
+
+##### Tổng kết luồng đặt nhiều phòng:
+
+1. **Đặt phòng:** Thêm `num_rooms` vào request → Hệ thống kiểm tra số phòng trống
+2. **Thanh toán:** Thanh toán 1 lần cho tất cả phòng → Tổng giá = giá 1 phòng × số đêm × num_rooms
+3. **Nhận mã booking:** Một `booking_code` duy nhất (ví dụ: `AEWQAS`)
+4. **Check-in:** Lễ tân nhập `booking_code` → Hệ thống hiển thị tất cả phòng đã gán
+5. **Gán phòng:** Tự động gán `num_rooms` phòng khi thanh toán thành công
 
 ### 9.2. LUỒNG 2: ĐẶT PHÒNG TRỰC TIẾP (WALK-IN)
 
 #### 9.2.1. Tạo booking trực tiếp
+
+**Lưu ý về đặt nhiều phòng:**
+- Thêm trường `num_rooms` vào request body
+- Hệ thống kiểm tra số lượng phòng trống có đủ không
+- Giá được tính: giá 1 phòng × số đêm × num_rooms
+- Phòng sẽ được gán khi check-in (có thể gán trước hoặc gán khi check-in)
+
+**Ví dụ đặt 1 phòng:**
+```json
+{
+  "user_id": 2,
+  "room_type_id": 1,
+  "check_in_date": "2024-01-15",
+  "check_out_date": "2024-01-17",
+  "num_person": 2,
+  "num_rooms": 1,
+  "note": "Khách VIP"
+}
+```
+
+**Ví dụ đặt 3 phòng:**
+```json
+{
+  "user_id": 2,
+  "room_type_id": 1,
+  "check_in_date": "2024-01-15",
+  "check_out_date": "2024-01-17",
+  "num_person": 6,
+  "num_rooms": 3,
+  "note": "Đoàn gia đình 6 người"
+}
+```
+- Giá: 500,000 VNĐ/đêm × 2 đêm × 3 phòng = 3,000,000 VNĐ
+- Một booking code duy nhất cho cả 3 phòng
+- Check-in bằng booking code, hiển thị tất cả 3 phòng đã gán
 <!-- - **POST** `http://localhost:5000/api/bookings/walk-in`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Body:**
@@ -1328,6 +1642,9 @@ INSERT INTO booking_services (
   - Email, phone, password để NULL (không tạo tạm thời)
 
 #### 9.2.3. Tạo walk-in booking và check-in luôn
+
+**Lưu ý:** API này dùng cho walk-in nhanh, gán trực tiếp phòng cụ thể (room_id), không dùng cho đặt nhiều phòng. Để đặt nhiều phòng, dùng API walk-in thông thường.
+
 - **POST** `http://localhost:5000/api/bookings/walk-in-checkin`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
 - **Body:**
@@ -1397,6 +1714,15 @@ INSERT INTO booking_services (
         "booking_id": 1,
         "booking_code": "A1B2C3",
         "room_type_name": "Deluxe",
+        "rooms": [
+          {
+            "room_id": 1,
+            "room_num": 101,
+            "status": "booked",
+            "assigned_at": "2024-01-14 10:30:00"
+          }
+        ],
+        "num_rooms": 1,
         "room_num": 101,
         "check_in_date": "2024-01-15",
         "check_out_date": "2024-01-17",
@@ -1462,13 +1788,15 @@ INSERT INTO booking_services (
           "full_name": "Nguyễn Văn A",
           "email": "nguyenvana@email.com"
         },
-        "room": {
-          "room_id": 1,
-          "room_number": "101",
-          "room_type": {
-            "room_type_name": "Deluxe"
+        "rooms": [
+          {
+            "room_id": 1,
+            "room_num": 101,
+            "status": "booked",
+            "assigned_at": "2024-01-14 10:30:00"
           }
-        }
+        ],
+        "num_rooms": 1
       }
     ],
     "pagination": {
@@ -1498,13 +1826,20 @@ INSERT INTO booking_services (
         "full_name": "Nguyễn Văn A",
         "email": "nguyenvana@email.com"
       },
-      "room": {
-        "room_id": 1,
-        "room_number": "101",
-        "room_type": {
-          "room_type_name": "Deluxe"
+      "rooms": [
+        {
+          "room_id": 1,
+          "room_num": 101,
+          "status": "booked",
+          "room_type": {
+            "room_type_id": 1,
+            "room_type_name": "Deluxe",
+            "capacity": 2
+          },
+          "assigned_at": "2024-01-14 10:30:00"
         }
-      },
+      ],
+      "num_rooms": 1,
       "booking_services": [
         {
           "booking_service_id": 1,
@@ -1539,26 +1874,63 @@ INSERT INTO booking_services (
       "num_person": 2,
       "booking_status": "confirmed",
       "payment_status": "paid",
-      "total_price": 1000000,
+      "total_price": 3000000,
+      "final_price": 3000000,
+      "room_type": {
+        "room_type_id": 1,
+        "room_type_name": "Deluxe",
+        "capacity": 2
+      },
+      "rooms": [
+        {
+          "room_id": 1,
+          "room_num": 101,
+          "status": "booked",
+          "room_type": {
+            "room_type_id": 1,
+            "room_type_name": "Deluxe",
+            "capacity": 2
+          },
+          "assigned_at": "2024-01-14 10:30:00"
+        },
+        {
+          "room_id": 2,
+          "room_num": 102,
+          "status": "booked",
+          "room_type": {
+            "room_type_id": 1,
+            "room_type_name": "Deluxe",
+            "capacity": 2
+          },
+          "assigned_at": "2024-01-14 10:30:00"
+        },
+        {
+          "room_id": 3,
+          "room_num": 103,
+          "status": "booked",
+          "room_type": {
+            "room_type_id": 1,
+            "room_type_name": "Deluxe",
+            "capacity": 2
+          },
+          "assigned_at": "2024-01-14 10:30:00"
+        }
+      ],
+      "num_rooms": 3,
       "user": {
         "user_id": 2,
         "full_name": "Nguyễn Văn A",
         "email": "nguyenvana@email.com",
         "phone": "0123456789"
       },
-      "room": {
-        "room_id": 1,
-        "room_num": 101,
-        "room_type": {
-          "room_type_id": 1,
-          "room_type_name": "Deluxe",
-          "capacity": 2
-        }
-      },
       "services": []
     }
   }
   ```
+- **Lưu ý:**
+  - `rooms`: Mảng chứa tất cả phòng của booking này
+  - `num_rooms`: Số lượng phòng trong booking
+  - Khi check-in, lễ tân sẽ thấy tất cả phòng đã được gán từ booking code này
 
 #### 9.3.5. Lấy danh sách phòng trống (cho lễ tân)
 - **GET** `http://localhost:5000/api/bookings/available-rooms?room_type_id=1&check_in_date=2024-01-15&check_out_date=2024-01-17`
@@ -1578,44 +1950,66 @@ INSERT INTO booking_services (
       {
         "room_id": 5,
         "room_num": "101",
-        "floor": 1,
         "status": "available"
       },
       {
         "room_id": 7,
         "room_num": "102",
-        "floor": 1,
         "status": "available"
       }
     ]
   }
   ```
 
-#### 9.3.6. Check-in (phòng đã được gán sẵn) — Quy tắc giờ check-in cho booking online
+#### 9.3.6. Check-in (phòng đã được gán sẵn hoặc gán khi check-in cho walk-in)
 - **POST** `http://localhost:5000/api/bookings/{booking_code}/check-in`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
+- **Body (Optional - chỉ cho walk-in booking chưa gán phòng):**
+  ```json
+  {
+    "room_ids": [1, 2, 3]
+  }
+  ```
 - **Yêu cầu:** 
   - Booking phải ở trạng thái `confirmed`
-  - Phòng đã được gán sẵn khi thanh toán thành công
+  - **Booking online:** Phòng đã được gán sẵn khi thanh toán thành công. Không cần gửi `room_ids`.
+  - **Booking walk-in:** Có thể chưa gán phòng. Nếu chưa gán, cần gửi `room_ids` (mảng các room_id).
   - Nếu là booking online: chỉ được check-in từ **12:00 trưa ngày check_in_date** trở đi. Trước thời điểm này API sẽ trả về lỗi 400.
 - **Ví dụ:** `POST http://localhost:5000/api/bookings/9AF1MBNS/check-in`
-- **Response:**
+- **Response (Booking có nhiều phòng):**
   ```json
   {
     "message": "Check-in thành công",
     "booking_code": "9AF1MBNS",
     "guest_name": "Nguyễn Văn A",
     "room_type": "Deluxe",
-    "room_number": "101",
+    "rooms": [
+      {
+        "room_id": 1,
+        "room_num": 101,
+        "assigned_at": "2024-01-15 10:30:00"
+      },
+      {
+        "room_id": 2,
+        "room_num": 102,
+        "assigned_at": "2024-01-15 10:30:00"
+      },
+      {
+        "room_id": 3,
+        "room_num": 103,
+        "assigned_at": "2024-01-15 10:30:00"
+      }
+    ],
+    "num_rooms": 3,
     "check_in_time": "2024-01-15 14:30:00",
-    "room_assigned_at": "2024-01-15 10:30:00",
     "statusCode": 200
   }
   ```
 - **Lưu ý:** 
-  - Phòng đã được gán tự động khi thanh toán thành công
-  - Lễ tân chỉ cần xác nhận check-in, không cần chỉ định phòng
-  - Sau check-in, booking chuyển sang trạng thái `checked_in`
+  - **Booking online:** Phòng đã được gán tự động khi thanh toán thành công, hiển thị trong `rooms` array
+  - **Booking walk-in:** Có thể gán phòng khi check-in bằng cách gửi `room_ids`
+  - Lễ tân chỉ cần nhập booking code, hệ thống sẽ hiển thị tất cả phòng đã được gán
+  - Sau check-in, booking chuyển sang trạng thái `checked_in` và tất cả phòng chuyển sang `in_use`
 
 Response khi chưa tới 12:00 (booking online):
 ```json
@@ -1647,15 +2041,16 @@ Response khi chưa tới 12:00 (booking online):
 #### 9.3.7.1. Check-in với gán phòng (cho walk-in booking)
 - **POST** `http://localhost:5000/api/bookings/{booking_code}/check-in`
 - **Headers:** `Authorization: Bearer ADMIN_TOKEN`
-- **Body (JSON):**
+- **Body (JSON - Optional):** Chỉ cần khi walk-in booking chưa có phòng được gán
   ```json
   {
-    "room_id": 5
+    "room_ids": [5, 6, 7]
   }
   ```
 - **Yêu cầu:** 
   - Booking phải ở trạng thái `confirmed`
-  - Booking chưa có phòng được gán (walk-in booking)
+  - Walk-in booking có thể chưa có phòng được gán (cần gửi `room_ids`)
+  - Online booking đã có phòng được gán tự động khi thanh toán thành công
 - **Response:**
   ```json
   {
@@ -1663,15 +2058,34 @@ Response khi chưa tới 12:00 (booking online):
     "booking_code": "A1B2C3",
     "guest_name": "Nguyễn Văn A",
     "room_type": "Deluxe",
-    "room_number": 101,
+    "rooms": [
+      {
+        "room_id": 5,
+        "room_num": 101,
+        "assigned_at": "2024-01-15 14:30:00"
+      },
+      {
+        "room_id": 6,
+        "room_num": 102,
+        "assigned_at": "2024-01-15 14:30:00"
+      },
+      {
+        "room_id": 7,
+        "room_num": 103,
+        "assigned_at": "2024-01-15 14:30:00"
+      }
+    ],
+    "num_rooms": 3,
     "check_in_time": "2024-01-15 14:30:00",
     "statusCode": 200
   }
   ```
 - **Lưu ý:** 
-  - Nếu booking chưa có phòng, bắt buộc phải cung cấp `room_id` trong body
-  - Nếu booking đã có phòng, không cần `room_id`, chỉ cần gọi API
-  - Sau check-in, booking chuyển sang trạng thái `checked_in` và phòng chuyển sang `in_use`
+  - **Booking online:** Phòng đã được gán tự động khi thanh toán thành công, không cần gửi `room_ids`
+  - **Booking walk-in chưa có phòng:** Bắt buộc phải cung cấp `room_ids` (mảng các room_id)
+  - **Booking walk-in đã có phòng:** Không cần `room_ids`, chỉ cần gọi API
+  - Sau check-in, booking chuyển sang trạng thái `checked_in` và tất cả phòng chuyển sang `in_use`
+  - Tất cả phòng được quản lý qua bảng `booking_rooms`, không có liên kết trực tiếp giữa Booking và Room
 
 #### 9.3.8. Cập nhật trạng thái phòng (Admin only)
 - **PUT** `http://localhost:5000/api/bookings/room/:room_id/status`
@@ -1787,26 +2201,48 @@ Tạo user nhanh (chỉ cần tên + phone) → Chọn phòng available → Tạ
 #### 9.3.11. Tóm tắt thay đổi quan trọng
 
 **✅ Đã sửa:**
-1. **Mối quan hệ database:** Booking ↔ RoomType (chính), Booking ↔ Room (phụ)
-2. **API endpoints:** Sử dụng `booking_code` thay vì `id` cho check-in/check-out
-3. **Luồng đặt phòng:** Khách đặt loại phòng, hệ thống tự động gán phòng cụ thể
-4. **ENUM booking_status:** Thêm `checked_in` và `checked_out`
-5. **Database migration:** Thêm `room_type_id`, `room_assigned_at` vào bảng bookings
-6. **ENUM room status:** Thêm `in_use`, `checked_out` để quản lý trạng thái phòng
-7. **Walk-in nhanh:** Tạo user + booking + check-in một lần, payment_status pending
-8. **Check-out tự động:** Tự động chuyển payment_status từ `pending` → `paid`
+1. **Mối quan hệ database:** 
+   - Booking ↔ RoomType (chính - trực tiếp)
+   - Booking ↔ Room (không còn liên kết trực tiếp)
+   - Booking ↔ BookingRoom ↔ Room (many-to-many qua bảng trung gian)
+   - **Lưu ý:** Tất cả phòng được quản lý qua bảng `booking_rooms`, không còn field `room_id` trực tiếp trong booking
+2. **Redis Temp Booking (Giữ chỗ tạm thời):**
+   - **TTL:** 30 phút (1800 giây) - Tự động hết hạn nếu không thanh toán
+   - **Logic kiểm tra phòng trống:**
+     - Chỉ tính các phòng thực sự trống trong database (đã loại trừ phòng đã được đặt vĩnh viễn)
+     - Trừ đi số phòng đang được giữ tạm thời bởi khách hàng khác (chỉ tính tối đa bằng số phòng trống)
+     - Đảm bảo không block phòng đã được đặt vĩnh viễn hoặc phòng của chính user hiện tại
+   - **Webhook logic:** Khi thanh toán thành công, temp booking hiện tại được bỏ qua khi tính số phòng đang được giữ, đảm bảo thanh toán thành công
+   - **Tự động giải phóng:** Nếu không thanh toán trong 30 phút hoặc thanh toán thành công, temp booking tự động bị xóa
+3. **API endpoints:** Sử dụng `booking_code` thay vì `id` cho check-in/check-out
+4. **Luồng đặt phòng:** Khách đặt loại phòng, hệ thống tự động gán phòng cụ thể qua `booking_rooms`
+5. **ENUM booking_status:** Thêm `checked_in` và `checked_out`
+6. **Database structure:** 
+   - `bookings.room_type_id` (NOT NULL) - Loại phòng khách đặt
+   - `bookings.room_id` (NULL, deprecated) - Không còn sử dụng, chỉ để backward compatible
+   - `booking_rooms` - Bảng trung gian quản lý nhiều phòng cho một booking
+7. **ENUM room status:** Thêm `in_use`, `checked_out` để quản lý trạng thái phòng
+8. **Walk-in booking:** Tự động tạo records trong `booking_rooms` khi tạo booking, không cần đợi check-in
+9. **Check-out tự động:** Tự động chuyển payment_status từ `pending` → `paid`
 
 **🔄 Luồng hoạt động mới:**
-- **Online:** Chọn loại phòng → Temp booking → Thanh toán → Webhook → Gán phòng → Check-in
-- **Walk-in truyền thống:** Admin tạo booking → Chọn loại phòng → Thanh toán → Gán phòng khi check-in → Check-in
-- **Walk-in nhanh:** Tạo user nhanh → Chọn phòng available → Tạo booking + check-in luôn → Check-out (payment_status: pending → paid)
+- **Online:** Chọn loại phòng → Temp booking → Thanh toán → Webhook → Tạo `booking_rooms` records → Check-in
+- **Walk-in:** Admin tạo booking → Chọn loại phòng → Tự động tạo `booking_rooms` records → Check-in
+- **Walk-in nhanh:** Tạo user nhanh → Chọn phòng available → Tạo booking + `booking_rooms` + check-in luôn → Check-out
 - **Trạng thái phòng tự động:** `available` → `booked` → `in_use` → `checked_out` → `cleaning` → `available`
 
 **📊 Cấu trúc database:**
 - `bookings.room_type_id` (NOT NULL) - Loại phòng khách đặt
-- `bookings.room_id` (NULL) - Phòng cụ thể (chỉ khi đã gán)
-- `bookings.room_assigned_at` (NULL) - Thời gian gán phòng
+- `bookings.room_id` (NULL, deprecated) - Không còn được sử dụng, chỉ để tương thích ngược
+- `booking_rooms.booking_id` - ID booking
+- `booking_rooms.room_id` - ID phòng được gán
+- `booking_rooms.assigned_at` - Thời gian gán phòng
 - `rooms.status` - Trạng thái phòng: available, booked, in_use, checked_out, cleaning
+
+**🔑 Lưu ý quan trọng:**
+- **Một booking có thể có nhiều phòng:** Mỗi phòng được lưu trong `booking_rooms` table
+- **Không có liên kết trực tiếp:** Booking và Room không còn association trực tiếp, tất cả đều qua `booking_rooms`
+- **API responses:** Trả về `rooms` (array) thay vì `room` (object) để hiển thị tất cả phòng
 
 **🔄 API mới:**
 - **POST** `/api/users/quick-create` - Tạo user nhanh cho walk-in (chỉ cần tên + CCCD)
@@ -2008,18 +2444,35 @@ Headers: Authorization: Bearer USER_A_TOKEN
    ```
    → Lưu `token` từ response
 
-2. **Giữ chỗ tạm thời:**
+2. **Giữ chỗ tạm thời (ví dụ đặt 1 phòng):**
    ```bash
    POST /api/bookings/temp-booking
    Headers: Authorization: Bearer {token}
    {
-     "room_id": 1,
+     "room_type_id": 1,
      "check_in_date": "2025-10-21",
      "check_out_date": "2025-10-22",
-     "num_person": 2
+     "num_person": 2,
+     "num_rooms": 1
    }
    ```
    → Lưu `temp_booking_key` từ response
+
+   **Đặt nhiều phòng (ví dụ 3 phòng):**
+   ```bash
+   POST /api/bookings/temp-booking
+   Headers: Authorization: Bearer {token}
+   {
+     "room_type_id": 1,
+     "check_in_date": "2025-10-21",
+     "check_out_date": "2025-10-22",
+     "num_person": 6,
+     "num_rooms": 3
+   }
+   ```
+   - Giá sẽ tự động tính: giá 1 phòng × số đêm × 3
+   - Hệ thống kiểm tra có đủ 3 phòng trống không
+   - Sau thanh toán, sẽ được gán 3 phòng cụ thể
 
 3. **Thêm dịch vụ trả trước:**
    ```bash
@@ -2072,32 +2525,41 @@ Headers: Authorization: Bearer USER_A_TOKEN
    ```
    → Lưu `admin_token`
 
-2. **Tạo booking walk-in:**
+2. **Tạo booking walk-in (ví dụ đặt 3 phòng):**
    ```bash
    POST /api/bookings/walk-in
    Headers: Authorization: Bearer {admin_token}
    {
-     "user_id": 2,
-     "room_id": 1,
-     "check_in_date": "2025-10-21",
-     "check_out_date": "2025-10-22",
-     "num_person": 2,
-     "note": "Khách VIP",
-     "services": [
-       {
-         "service_id": 1,
-         "quantity": 1,
-         "payment_type": "postpaid"
-       }
-     ]
+    "user_id": 2,
+    "room_type_id": 1,
+    "check_in_date": "2025-10-21",
+    "check_out_date": "2025-10-22",
+    "num_person": 6,
+    "num_rooms": 3,
+    "note": "Đoàn gia đình 6 người",
+    "services": [
+      {
+        "service_id": 1,
+        "quantity": 1,
+        "payment_type": "postpaid"
+      }
+    ]
    }
    ```
+   → Lưu `booking_code` từ response
 
-3. **Check-in:**
+3. **Check-in với booking code (gán phòng khi check-in):**
    ```bash
-   POST /api/bookings/1/check-in
+   POST /api/bookings/{booking_code}/check-in
    Headers: Authorization: Bearer {admin_token}
+   {
+     "room_ids": [101, 102, 103]
+   }
    ```
+   - **Lưu ý:** 
+     - Nếu booking online: Phòng đã được gán sẵn, không cần gửi `room_ids`
+     - Nếu booking walk-in chưa gán phòng: Gửi `room_ids` là mảng các room_id
+     - Response sẽ hiển thị tất cả phòng đã gán
 
 4. **Check-out:**
    ```bash
@@ -2927,9 +3389,15 @@ SELECT * FROM booking_services WHERE booking_id = <booking_id>;
 - Kiểm tra PayOS dashboard webhook settings
 
 ### **Lỗi "Temp booking not found":**
-- Booking tạm thời đã hết hạn (30 phút)
+- Booking tạm thời đã hết hạn (30 phút TTL)
 - Tạo lại flow từ đầu
 - Kiểm tra Redis connection
+
+### **Lỗi "Không đủ phòng trống" với held_rooms:**
+- Hệ thống đang tính các phòng đang được giữ tạm thời bởi khách hàng khác
+- Các phòng này sẽ tự động giải phóng sau 30 phút nếu không thanh toán
+- Hoặc sẽ được giải phóng ngay khi khách hàng đó thanh toán thành công
+- **Lưu ý:** Hệ thống chỉ tính các phòng thực sự trống trong DB, không tính các phòng đã được đặt vĩnh viễn
 
 ### **Lỗi "Email sending failed":**
 - Kiểm tra `EMAIL_USER` và `EMAIL_PASS` trong .env

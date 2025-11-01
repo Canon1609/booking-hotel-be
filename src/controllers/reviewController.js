@@ -320,7 +320,15 @@ exports.getAllReviews = async (req, res) => {
           attributes: ['booking_id', 'booking_code', 'room_type_id', 'booking_status'],
           include: [
             { model: RoomType, as: 'room_type', attributes: ['room_type_name'] },
-            { model: Room, as: 'room', attributes: ['room_num'] }
+            {
+              model: BookingRoom,
+              as: 'booking_rooms',
+              include: [{
+                model: Room,
+                as: 'room',
+                attributes: ['room_id', 'room_num']
+              }]
+            }
           ]
         }
       ],
@@ -348,7 +356,10 @@ exports.getAllReviews = async (req, res) => {
           booking_id: review.booking.booking_id,
           booking_code: review.booking.booking_code,
           room_type_name: review.booking.room_type?.room_type_name,
-          room_num: review.booking.room?.room_num,
+          rooms: review.booking.booking_rooms?.map(br => ({
+            room_id: br.room?.room_id,
+            room_num: br.room?.room_num
+          })) || [],
           booking_status: review.booking.booking_status
         }
       })),
@@ -382,7 +393,15 @@ exports.getMyReviews = async (req, res) => {
           attributes: ['booking_id', 'booking_code', 'room_type_id'],
           include: [
             { model: RoomType, as: 'room_type', attributes: ['room_type_name'] },
-            { model: Room, as: 'room', attributes: ['room_num'] }
+            {
+              model: BookingRoom,
+              as: 'booking_rooms',
+              include: [{
+                model: Room,
+                as: 'room',
+                attributes: ['room_id', 'room_num']
+              }]
+            }
           ]
         }
       ],
@@ -403,8 +422,11 @@ exports.getMyReviews = async (req, res) => {
         booking: {
           booking_id: review.booking.booking_id,
           booking_code: review.booking.booking_code,
-          room_type_name: review.booking.room_type.room_type_name,
-          room_num: review.booking.room?.room_num
+          room_type_name: review.booking.room_type?.room_type_name,
+          rooms: review.booking.booking_rooms?.map(br => ({
+            room_id: br.room?.room_id,
+            room_num: br.room?.room_num
+          })) || []
         }
       })),
       pagination: {

@@ -11,6 +11,7 @@ const Booking = require('./booking.model');
 const Payment = require('./payment.model');
 const Service = require('./service.model');
 const BookingService = require('./bookingService.model');
+const BookingRoom = require('./bookingRoom.model');
 const Review = require('./review.model');
 const Category = require('./category.model');
 const Post = require('./post.model');
@@ -38,9 +39,8 @@ RoomPrice.belongsTo(RoomType, { foreignKey: 'room_type_id', as: 'room_type' });
 RoomType.hasMany(Booking, { foreignKey: 'room_type_id', as: 'bookings' });
 Booking.belongsTo(RoomType, { foreignKey: 'room_type_id', as: 'room_type' });
 
-// Room ↔ Booking (MỐI QUAN HỆ PHỤ - chỉ khi đã gán phòng)
-Room.hasMany(Booking, { foreignKey: 'room_id', as: 'bookings' });
-Booking.belongsTo(Room, { foreignKey: 'room_id', as: 'room' });
+// NOTE: Không có liên kết trực tiếp giữa Room và Booking nữa
+// Tất cả liên kết đều qua BookingRoom (many-to-many relationship)
 
 // Booking ↔ Payment
 Booking.hasMany(Payment, { foreignKey: 'booking_id', as: 'payments' });
@@ -61,6 +61,14 @@ BookingService.belongsTo(Booking, { foreignKey: 'booking_id', as: 'booking' });
 // Service ↔ BookingService
 Service.hasMany(BookingService, { foreignKey: 'service_id', as: 'booking_services' });
 BookingService.belongsTo(Service, { foreignKey: 'service_id', as: 'service' });
+
+// Booking ↔ BookingRoom
+Booking.hasMany(BookingRoom, { foreignKey: 'booking_id', as: 'booking_rooms' });
+BookingRoom.belongsTo(Booking, { foreignKey: 'booking_id', as: 'booking' });
+
+// Room ↔ BookingRoom
+Room.hasMany(BookingRoom, { foreignKey: 'room_id', as: 'booking_rooms' });
+BookingRoom.belongsTo(Room, { foreignKey: 'room_id', as: 'room' });
 
 // User ↔ Post
 User.hasMany(Post, { foreignKey: 'user_id', as: 'posts' });
@@ -90,6 +98,7 @@ module.exports = {
   Payment,
   Service,
   BookingService,
+  BookingRoom,
   Review,
   Category,
   Post
