@@ -1,5 +1,5 @@
 const multer = require('multer');
-const { Review, Booking, User, RoomType, Room } = require('../models');
+const { Review, Booking, User, RoomType, Room, BookingRoom } = require('../models');
 const { Op } = require('sequelize');
 const { uploadBufferToS3, generateKey, deleteFromS3, tryExtractKeyFromUrl } = require('../utils/s3.util');
 
