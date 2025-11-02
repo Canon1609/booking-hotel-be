@@ -2044,11 +2044,20 @@ exports.refundBookingAdmin = async (req, res) => {
 exports.generateInvoicePDF = async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // Lấy tên nhân viên (admin/staff) đang tạo hóa đơn từ database
+    let staffName = '';
+    if (req.user?.id) {
+      const staffUser = await User.findByPk(req.user.id, {
+        attributes: ['full_name']
+      });
+      staffName = staffUser?.full_name || '';
+    }
 
     const booking = await Booking.findOne({
       where: { booking_id: id },
       include: [
-        { model: User, as: 'user' },
+        { model: User, as: 'user', attributes: ['user_id', 'full_name', 'email', 'phone'] },
         { model: RoomType, as: 'room_type', attributes: ['room_type_id', 'room_type_name'] },
         {
           model: BookingRoom,
@@ -2059,7 +2068,18 @@ exports.generateInvoicePDF = async (req, res) => {
             attributes: ['room_id', 'room_num']
           }]
         },
-        { model: BookingService, as: 'booking_services', include: [{ model: Service, as: 'service' }] }
+        { 
+          model: BookingService, 
+          as: 'booking_services', 
+          where: { status: { [Op.ne]: 'cancelled' } }, // Chỉ lấy dịch vụ chưa bị hủy
+          required: false,
+          include: [{ 
+            model: Service, 
+            as: 'service',
+            attributes: ['service_id', 'name']
+          }] 
+        },
+        { model: Payment, as: 'payments', attributes: ['payment_id', 'amount', 'method', 'status'] }
       ]
     });
 
@@ -2067,70 +2087,117 @@ exports.generateInvoicePDF = async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy booking' });
     }
 
-    // Tạo dữ liệu hóa đơn
+    // ========== TẠO DỮ LIỆU HÓA ĐƠN ==========
     const invoiceData = {
       items: [],
-      total: 0,
+      subtotal: 0,
       discount: 0,
-      tax: 0,
-      finalTotal: 0
+      grandTotal: 0,
+      paidOnline: 0,
+      refunds: 0,
+      amountDue: 0,
+      paymentMethod: 'Tiền mặt / Thẻ'
     };
 
-    // Thêm phòng vào hóa đơn
+    // 1. Tiền phòng (Accommodation)
     const nights = moment(booking.check_out_date).diff(moment(booking.check_in_date), 'days');
     const numRooms = booking.booking_rooms?.length || 1;
-    const roomPrice = booking.total_price / (nights * numRooms);
+    const roomPricePerNight = parseFloat(booking.total_price || 0) / (nights * numRooms);
+    const accommodationTotal = parseFloat(booking.total_price || 0);
     
     invoiceData.items.push({
-      name: `Phòng ${booking.room_type?.room_type_name || 'N/A'} (${numRooms} phòng)`,
-      quantity: nights * numRooms,
-      unitPrice: roomPrice,
-      total: booking.total_price
+      name: `Tiền phòng (Accommodation) - ${booking.room_type?.room_type_name || 'N/A'}`,
+      quantity: nights,
+      unitPrice: roomPricePerNight * numRooms,
+      total: accommodationTotal
     });
 
-    // Thêm dịch vụ vào hóa đơn
+    // 2. Dịch vụ (Services) - Chỉ lấy dịch vụ postpaid (trả sau) và active
     if (booking.booking_services && booking.booking_services.length > 0) {
       for (const bookingService of booking.booking_services) {
+        const serviceName = bookingService.service?.name || 'Dịch vụ';
+        const paymentType = bookingService.payment_type || 'prepaid';
+        const paymentNote = paymentType === 'prepaid' ? ' (Đã trả trước)' : '';
+        
         invoiceData.items.push({
-          name: bookingService.service?.service_name || 'Dịch vụ',
+          name: `${serviceName}${paymentNote}`,
           quantity: bookingService.quantity,
-          unitPrice: bookingService.unit_price,
-          total: bookingService.total_price
+          unitPrice: parseFloat(bookingService.unit_price || 0),
+          total: parseFloat(bookingService.total_price || 0)
         });
       }
     }
 
-    // Tính tổng
-    invoiceData.total = invoiceData.items.reduce((sum, item) => sum + item.total, 0);
+    // 3. Phụ thu (Surcharges) - Ví dụ: check-out muộn
+    // TODO: Thêm logic tính phụ thu check-out muộn nếu có
+    // Tạm thời để trống, có thể bổ sung sau
+
+    // Tính tổng chi phí (Subtotal)
+    invoiceData.subtotal = invoiceData.items.reduce((sum, item) => sum + parseFloat(item.total || 0), 0);
     
     // Áp dụng giảm giá nếu có
     if (booking.promotion_id) {
       const promotion = await Promotion.findByPk(booking.promotion_id);
       if (promotion) {
         if (promotion.discount_type === 'percentage') {
-          invoiceData.discount = (invoiceData.total * promotion.amount) / 100;
+          invoiceData.discount = (invoiceData.subtotal * promotion.amount) / 100;
         } else {
-          invoiceData.discount = promotion.amount;
+          invoiceData.discount = parseFloat(promotion.amount);
         }
       }
     }
 
-    // Tính thuế (10%)
-    const subtotal = invoiceData.total - invoiceData.discount;
-    invoiceData.tax = Math.round(subtotal * 0.1);
-    invoiceData.finalTotal = subtotal + invoiceData.tax;
+    // Tính tổng cộng (không có VAT)
+    const subtotalAfterDiscount = invoiceData.subtotal - invoiceData.discount;
+    invoiceData.grandTotal = subtotalAfterDiscount;
 
-    // Tạo PDF
-    const pdfBuffer = await pdfService.generateInvoicePDF(booking, invoiceData);
-
-    // Gửi email hóa đơn nếu có email
-    if (booking.user && booking.user.email) {
-      try {
-        await sendInvoiceEmail(booking, booking.user, invoiceData);
-      } catch (emailError) {
-        console.error('Error sending invoice email:', emailError);
+    // Tính toán thanh toán online và hoàn tiền từ bảng Payment
+    if (booking.payments && booking.payments.length > 0) {
+      for (const payment of booking.payments) {
+        const amount = parseFloat(payment.amount || 0);
+        if (payment.status === 'completed') {
+          if (amount > 0 && payment.method === 'payos') {
+            // Thanh toán online qua PayOS
+            invoiceData.paidOnline += amount;
+          }
+          if (amount < 0) {
+            // Hoàn tiền (amount âm)
+            invoiceData.refunds += Math.abs(amount);
+          }
+        }
       }
     }
+
+    // Tính số tiền thanh toán khi check-out (Amount Due)
+    // = Grand Total - Đã thanh toán online + Đã hoàn tiền
+    invoiceData.amountDue = invoiceData.grandTotal - invoiceData.paidOnline - invoiceData.refunds;
+    
+    // Nếu đã thanh toán đủ hoặc dư thì amountDue có thể <= 0
+    if (invoiceData.amountDue <= 0) {
+      invoiceData.amountDue = 0;
+    }
+
+    // Xác định phương thức thanh toán
+    if (invoiceData.paidOnline > 0 && invoiceData.amountDue === 0) {
+      invoiceData.paymentMethod = 'Đã thanh toán online (PayOS)';
+    } else if (invoiceData.paidOnline > 0 && invoiceData.amountDue > 0) {
+      invoiceData.paymentMethod = 'Online (PayOS) + Tiền mặt / Thẻ';
+    } else {
+      invoiceData.paymentMethod = 'Tiền mặt / Thẻ';
+    }
+
+    // Tạo PDF với staffName
+    const pdfBuffer = await pdfService.generateInvoicePDF(booking, invoiceData, staffName);
+
+    // Gửi email hóa đơn nếu có email
+    // TODO: Bật lại tính năng gửi email hóa đơn khi cần
+    // if (booking.user && booking.user.email) {
+    //   try {
+    //     await sendInvoiceEmail(booking, booking.user, invoiceData);
+    //   } catch (emailError) {
+    //     console.error('Error sending invoice email:', emailError);
+    //   }
+    // }
 
     // Trả về PDF
     res.setHeader('Content-Type', 'application/pdf');
@@ -2148,11 +2215,20 @@ exports.generateInvoicePDF = async (req, res) => {
 exports.viewInvoice = async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // Lấy tên nhân viên (admin/staff) đang tạo hóa đơn từ database
+    let staffName = '';
+    if (req.user?.id) {
+      const staffUser = await User.findByPk(req.user.id, {
+        attributes: ['full_name']
+      });
+      staffName = staffUser?.full_name || '';
+    }
 
     const booking = await Booking.findOne({
       where: { booking_id: id },
       include: [
-        { model: User, as: 'user' },
+        { model: User, as: 'user', attributes: ['user_id', 'full_name', 'email', 'phone'] },
         { model: RoomType, as: 'room_type', attributes: ['room_type_id', 'room_type_name'] },
         {
           model: BookingRoom,
@@ -2163,7 +2239,18 @@ exports.viewInvoice = async (req, res) => {
             attributes: ['room_id', 'room_num']
           }]
         },
-        { model: BookingService, as: 'booking_services', include: [{ model: Service, as: 'service' }] }
+        { 
+          model: BookingService, 
+          as: 'booking_services', 
+          where: { status: { [Op.ne]: 'cancelled' } }, // Chỉ lấy dịch vụ chưa bị hủy
+          required: false,
+          include: [{ 
+            model: Service, 
+            as: 'service',
+            attributes: ['service_id', 'name']
+          }] 
+        },
+        { model: Payment, as: 'payments', attributes: ['payment_id', 'amount', 'method', 'status'] }
       ]
     });
 
@@ -2171,56 +2258,99 @@ exports.viewInvoice = async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy booking' });
     }
 
-    // Tạo dữ liệu hóa đơn (tương tự như generateInvoicePDF)
+    // ========== TẠO DỮ LIỆU HÓA ĐƠN (giống generateInvoicePDF) ==========
     const invoiceData = {
       items: [],
-      total: 0,
+      subtotal: 0,
       discount: 0,
-      tax: 0,
-      finalTotal: 0
+      grandTotal: 0,
+      paidOnline: 0,
+      refunds: 0,
+      amountDue: 0,
+      paymentMethod: 'Tiền mặt / Thẻ'
     };
 
+    // 1. Tiền phòng (Accommodation)
     const nights = moment(booking.check_out_date).diff(moment(booking.check_in_date), 'days');
     const numRooms = booking.booking_rooms?.length || 1;
-    const roomPrice = booking.total_price / (nights * numRooms);
+    const roomPricePerNight = parseFloat(booking.total_price || 0) / (nights * numRooms);
+    const accommodationTotal = parseFloat(booking.total_price || 0);
     
     invoiceData.items.push({
-      name: `Phòng ${booking.room_type?.room_type_name || 'N/A'} (${numRooms} phòng)`,
-      quantity: nights * numRooms,
-      unitPrice: roomPrice,
-      total: booking.total_price
+      name: `Tiền phòng (Accommodation) - ${booking.room_type?.room_type_name || 'N/A'}`,
+      quantity: nights,
+      unitPrice: roomPricePerNight * numRooms,
+      total: accommodationTotal
     });
 
+    // 2. Dịch vụ (Services)
     if (booking.booking_services && booking.booking_services.length > 0) {
       for (const bookingService of booking.booking_services) {
+        const serviceName = bookingService.service?.name || 'Dịch vụ';
+        const paymentType = bookingService.payment_type || 'prepaid';
+        const paymentNote = paymentType === 'prepaid' ? ' (Đã trả trước)' : '';
+        
         invoiceData.items.push({
-          name: bookingService.service?.service_name || 'Dịch vụ',
+          name: `${serviceName}${paymentNote}`,
           quantity: bookingService.quantity,
-          unitPrice: bookingService.unit_price,
-          total: bookingService.total_price
+          unitPrice: parseFloat(bookingService.unit_price || 0),
+          total: parseFloat(bookingService.total_price || 0)
         });
       }
     }
 
-    invoiceData.total = invoiceData.items.reduce((sum, item) => sum + item.total, 0);
+    // Tính tổng chi phí (Subtotal)
+    invoiceData.subtotal = invoiceData.items.reduce((sum, item) => sum + parseFloat(item.total || 0), 0);
     
+    // Áp dụng giảm giá nếu có
     if (booking.promotion_id) {
       const promotion = await Promotion.findByPk(booking.promotion_id);
       if (promotion) {
         if (promotion.discount_type === 'percentage') {
-          invoiceData.discount = (invoiceData.total * promotion.amount) / 100;
+          invoiceData.discount = (invoiceData.subtotal * promotion.amount) / 100;
         } else {
-          invoiceData.discount = promotion.amount;
+          invoiceData.discount = parseFloat(promotion.amount);
         }
       }
     }
 
-    const subtotal = invoiceData.total - invoiceData.discount;
-    invoiceData.tax = Math.round(subtotal * 0.1);
-    invoiceData.finalTotal = subtotal + invoiceData.tax;
+    // Tính tổng cộng (không có VAT)
+    const subtotalAfterDiscount = invoiceData.subtotal - invoiceData.discount;
+    invoiceData.grandTotal = subtotalAfterDiscount;
 
-    // Tạo HTML
-    const htmlContent = pdfService.generateInvoiceHTML(booking, invoiceData);
+    // Tính toán thanh toán online và hoàn tiền từ bảng Payment
+    if (booking.payments && booking.payments.length > 0) {
+      for (const payment of booking.payments) {
+        const amount = parseFloat(payment.amount || 0);
+        if (payment.status === 'completed') {
+          if (amount > 0 && payment.method === 'payos') {
+            invoiceData.paidOnline += amount;
+          }
+          if (amount < 0) {
+            invoiceData.refunds += Math.abs(amount);
+          }
+        }
+      }
+    }
+
+    // Tính số tiền thanh toán khi check-out (Amount Due)
+    invoiceData.amountDue = invoiceData.grandTotal - invoiceData.paidOnline - invoiceData.refunds;
+    
+    if (invoiceData.amountDue <= 0) {
+      invoiceData.amountDue = 0;
+    }
+
+    // Xác định phương thức thanh toán
+    if (invoiceData.paidOnline > 0 && invoiceData.amountDue === 0) {
+      invoiceData.paymentMethod = 'Đã thanh toán online (PayOS)';
+    } else if (invoiceData.paidOnline > 0 && invoiceData.amountDue > 0) {
+      invoiceData.paymentMethod = 'Online (PayOS) + Tiền mặt / Thẻ';
+    } else {
+      invoiceData.paymentMethod = 'Tiền mặt / Thẻ';
+    }
+
+    // Tạo HTML với staffName
+    const htmlContent = pdfService.generateInvoiceHTML(booking, invoiceData, staffName);
     
     res.setHeader('Content-Type', 'text/html');
     res.send(htmlContent);

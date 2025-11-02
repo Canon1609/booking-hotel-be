@@ -25,7 +25,7 @@ class PDFService {
   }
 
   // Tạo hóa đơn PDF
-  async generateInvoicePDF(booking, invoiceData) {
+  async generateInvoicePDF(booking, invoiceData, staffName = '') {
     try {
       if (!this.browser) {
         await this.initialize();
@@ -34,7 +34,7 @@ class PDFService {
       const page = await this.browser.newPage();
       
       // Tạo HTML cho hóa đơn
-      const htmlContent = this.generateInvoiceHTML(booking, invoiceData);
+      const htmlContent = this.generateInvoiceHTML(booking, invoiceData, staffName);
       
       await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
       
@@ -60,10 +60,19 @@ class PDFService {
   }
 
   // Tạo HTML cho hóa đơn
-  generateInvoiceHTML(booking, invoiceData) {
+  generateInvoiceHTML(booking, invoiceData, staffName = '') {
     const currentDate = moment().tz('Asia/Ho_Chi_Minh').format('DD/MM/YYYY HH:mm');
-    const checkInDate = moment(booking.check_in_time).format('DD/MM/YYYY HH:mm');
-    const checkOutDate = moment(booking.check_out_time).format('DD/MM/YYYY HH:mm');
+    const checkInDate = booking.check_in_time 
+      ? moment(booking.check_in_time).format('DD/MM/YYYY HH:mm')
+      : moment(booking.check_in_date).format('DD/MM/YYYY') + ' 14:00';
+    const checkOutDate = booking.check_out_time 
+      ? moment(booking.check_out_time).format('DD/MM/YYYY HH:mm')
+      : moment(booking.check_out_date).format('DD/MM/YYYY') + ' 12:00';
+    
+    // Lấy danh sách số phòng
+    const roomNumbers = booking.booking_rooms?.map(br => 
+      br.room?.room_num || br.room_num
+    ).filter(Boolean).join(', ') || 'N/A';
     
     return `
       <!DOCTYPE html>
@@ -247,9 +256,9 @@ class PDFService {
       </head>
       <body>
         <div class="header">
-          <div class="hotel-name">KHÁCH SẠN ABC</div>
-          <div class="hotel-info">123 Đường ABC, Quận 1, TP.HCM</div>
-          <div class="hotel-info">Hotline: 1900-xxxx | Email: info@hotelabc.com</div>
+          <div class="hotel-name">BEAN HOTEL</div>
+          <div class="hotel-info">12 Đường Nguyễn Văn Bảo, Phường Hạnh Thông, Quận Gò Vấp, TP.Hồ Chí Minh</div>
+          <div class="hotel-info">Hotline: 1900-1234 | Email: beanhotel@gmail.com</div>
         </div>
         
         <div class="invoice-title">HÓA ĐƠN THANH TOÁN</div>
@@ -258,20 +267,16 @@ class PDFService {
           <div class="invoice-details">
             <h3>Thông tin hóa đơn</h3>
             <div class="detail-row">
-              <div class="detail-label">Mã hóa đơn:</div>
-              <div class="detail-value">${booking.booking_code}</div>
+              <div class="detail-label">Mã đặt phòng:</div>
+              <div class="detail-value"><strong>${booking.booking_code || 'N/A'}</strong></div>
             </div>
             <div class="detail-row">
-              <div class="detail-label">Ngày tạo:</div>
+              <div class="detail-label">Ngày giờ xuất HĐ:</div>
               <div class="detail-value">${currentDate}</div>
             </div>
             <div class="detail-row">
-              <div class="detail-label">Trạng thái:</div>
-              <div class="detail-value">
-                <span class="payment-status ${booking.payment_status === 'paid' ? 'status-paid' : 'status-pending'}">
-                  ${booking.payment_status === 'paid' ? 'Đã thanh toán' : 'Chờ thanh toán'}
-                </span>
-              </div>
+              <div class="detail-label">Thu ngân (Lễ tân):</div>
+              <div class="detail-value">${staffName || 'N/A'}</div>
             </div>
           </div>
           
@@ -279,48 +284,41 @@ class PDFService {
             <h3>Thông tin khách hàng</h3>
             <div class="detail-row">
               <div class="detail-label">Tên khách:</div>
-              <div class="detail-value">${booking.user?.full_name || 'N/A'}</div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-label">Email:</div>
-              <div class="detail-value">${booking.user?.email || 'N/A'}</div>
-            </div>
-            <div class="detail-row">
-              <div class="detail-label">SĐT:</div>
-              <div class="detail-value">${booking.user?.phone || 'N/A'}</div>
+              <div class="detail-value"><strong>${booking.user?.full_name || 'N/A'}</strong></div>
             </div>
           </div>
         </div>
         
         <div class="booking-details">
-          <h3>Chi tiết đặt phòng</h3>
+          <h3>Chi tiết lưu trú</h3>
+          <div class="detail-row">
+            <div class="detail-label">Thời gian Nhận phòng (Check-in):</div>
+            <div class="detail-value"><strong>${checkInDate}</strong></div>
+          </div>
+          <div class="detail-row">
+            <div class="detail-label">Thời gian Trả phòng (Check-out):</div>
+            <div class="detail-value"><strong>${checkOutDate}</strong></div>
+          </div>
           <div class="detail-row">
             <div class="detail-label">Loại phòng:</div>
-            <div class="detail-value">${booking.room?.room_type?.room_type_name || 'N/A'}</div>
+            <div class="detail-value">${booking.room_type?.room_type_name || 'N/A'}</div>
           </div>
           <div class="detail-row">
             <div class="detail-label">Số phòng:</div>
-            <div class="detail-value">${booking.room?.room_number || 'N/A'}</div>
+            <div class="detail-value"><strong>${roomNumbers}</strong></div>
           </div>
           <div class="detail-row">
-            <div class="detail-label">Check-in:</div>
-            <div class="detail-value">${checkInDate}</div>
-          </div>
-          <div class="detail-row">
-            <div class="detail-label">Check-out:</div>
-            <div class="detail-value">${checkOutDate}</div>
-          </div>
-          <div class="detail-row">
-            <div class="detail-label">Số khách:</div>
+            <div class="detail-label">Số lượng khách:</div>
             <div class="detail-value">${booking.num_person} người</div>
           </div>
         </div>
         
+        <h3 style="color: #2c3e50; margin-top: 30px; margin-bottom: 15px; font-size: 18px;">Chi tiết các khoản phí</h3>
         <table class="services-table">
           <thead>
             <tr>
-              <th>Dịch vụ</th>
-              <th class="text-center">Số lượng</th>
+              <th>Mô tả</th>
+              <th class="text-center">SL</th>
               <th class="text-right">Đơn giá</th>
               <th class="text-right">Thành tiền</th>
             </tr>
@@ -330,38 +328,44 @@ class PDFService {
               <tr>
                 <td>${item.name}</td>
                 <td class="text-center">${item.quantity}</td>
-                <td class="text-right">${item.unitPrice.toLocaleString('vi-VN')} VNĐ</td>
-                <td class="text-right">${item.total.toLocaleString('vi-VN')} VNĐ</td>
+                <td class="text-right">${parseFloat(item.unitPrice || 0).toLocaleString('vi-VN')}đ</td>
+                <td class="text-right"><strong>${parseFloat(item.total || 0).toLocaleString('vi-VN')}đ</strong></td>
               </tr>
             `).join('')}
           </tbody>
         </table>
         
         <div class="total-section">
+          <h3 style="color: #2c3e50; margin-top: 0; margin-bottom: 20px; font-size: 18px;">Tổng kết thanh toán</h3>
           <div class="total-row">
-            <div class="total-label">Tổng cộng:</div>
-            <div class="total-amount">${invoiceData.total.toLocaleString('vi-VN')} VNĐ</div>
+            <div class="total-label">Tổng Chi phí (Subtotal):</div>
+            <div class="total-amount">${parseFloat(invoiceData.subtotal || invoiceData.total || 0).toLocaleString('vi-VN')}đ</div>
           </div>
-          ${invoiceData.discount > 0 ? `
-            <div class="total-row">
-              <div class="total-label">Giảm giá:</div>
-              <div class="total-amount">-${invoiceData.discount.toLocaleString('vi-VN')} VNĐ</div>
+          <div class="total-row" style="border-top: 2px solid #27ae60; padding-top: 10px; margin-top: 10px; font-size: 18px;">
+            <div class="total-label"><strong>TỔNG CỘNG (Grand Total):</strong></div>
+            <div class="total-amount"><strong>${parseFloat(invoiceData.grandTotal || invoiceData.finalTotal || 0).toLocaleString('vi-VN')}đ</strong></div>
+          </div>
+          ${invoiceData.paidOnline > 0 ? `
+            <div class="total-row" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+              <div class="total-label">Đã thanh toán (Online):</div>
+              <div class="total-amount" style="color: #28a745;">-${parseFloat(invoiceData.paidOnline).toLocaleString('vi-VN')}đ</div>
             </div>
           ` : ''}
-          ${invoiceData.tax > 0 ? `
+          ${invoiceData.refunds > 0 ? `
             <div class="total-row">
-              <div class="total-label">Thuế (10%):</div>
-              <div class="total-amount">${invoiceData.tax.toLocaleString('vi-VN')} VNĐ</div>
+              <div class="total-label">Đã hoàn tiền (Refunds):</div>
+              <div class="total-amount" style="color: #dc3545;">+${parseFloat(invoiceData.refunds).toLocaleString('vi-VN')}đ</div>
             </div>
           ` : ''}
-          <div class="total-row" style="border-top: 2px solid #27ae60; padding-top: 10px; margin-top: 10px;">
-            <div class="total-label">Thành tiền:</div>
-            <div class="total-amount">${invoiceData.finalTotal.toLocaleString('vi-VN')} VNĐ</div>
+          <div class="total-row" style="border-top: 3px solid #2c3e50; padding-top: 15px; margin-top: 15px; font-size: 20px; font-weight: bold;">
+            <div class="total-label" style="color: #dc3545;">SỐ TIỀN THANH TOÁN KHI CHECK-OUT (Amount Due):</div>
+            <div class="total-amount" style="color: #dc3545; font-size: 22px;">${parseFloat(invoiceData.amountDue || 0).toLocaleString('vi-VN')}đ</div>
           </div>
         </div>
         
         <div class="footer">
-          <p>Cảm ơn quý khách đã sử dụng dịch vụ của chúng tôi!</p>
+          <p><strong>Cảm ơn quý khách! Hẹn gặp lại!</strong></p>
+          <p>Phương thức thanh toán: ${invoiceData.paymentMethod || 'Tiền mặt / Thẻ'}</p>
           <p>Hóa đơn được tạo tự động vào ${currentDate}</p>
         </div>
       </body>
