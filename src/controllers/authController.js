@@ -3,6 +3,7 @@ const User = require('../models/user.model');
 const sendEmail = require('../utils/email.util');  // Gửi email
 const { signToken, verifyToken } = require('../utils/jwt.util');  // Tạo và xác thực JWT token
 const passport = require('../config/passport');
+const { CLIENT_URL } = require('../config/config');
 
 // Đăng ký người dùng
 exports.register = async (req, res) => {
@@ -30,7 +31,7 @@ exports.register = async (req, res) => {
     const token = signToken({ id: newUser.user_id, role: newUser.role });
 
     // Gửi email xác nhận
-    const confirmationLink = `${process.env.CLIENT_URL}/verify-email?token=${token}`;
+    const confirmationLink = `${CLIENT_URL}/verify-email?token=${token}`;
     const emailSubject = '🎉 Chào mừng đến với Bean Hotel - Xác nhận tài khoản';
     const emailText = `Chào ${full_name},\n\nChào mừng bạn đến với Bean Hotel!\n\nVui lòng nhấp vào đường dẫn sau để xác nhận đăng ký tài khoản: ${confirmationLink}\n\nTrân trọng,\nĐội ngũ Bean Hotel`;
     const emailHTML = `
@@ -151,7 +152,7 @@ exports.forgotPassword = async (req, res) => {
     // Tạo token reset mật khẩu
     const token = signToken({ id: user.user_id, role: user.role });
 
-    const resetLink = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
+    const resetLink = `${CLIENT_URL}/reset-password?token=${token}`;
     const emailSubject = '🔐 Bean Hotel - Yêu cầu đặt lại mật khẩu';
     const emailText = `Chào ${user.full_name},\n\nChúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản Bean Hotel của bạn.\n\nVui lòng nhấp vào đường dẫn sau để đặt lại mật khẩu: ${resetLink}\n\nTrân trọng,\nĐội ngũ Bean Hotel`;
     const emailHTML = `
@@ -293,7 +294,7 @@ exports.googleAuth = passport.authenticate('google', {
 // Google OAuth - Callback
 exports.googleCallback = [
   passport.authenticate('google', { 
-    failureRedirect: `${process.env.CLIENT_URL}/login?error=google_auth_failed` 
+    failureRedirect: `${CLIENT_URL}/login?error=google_auth_failed` 
   }),
   async (req, res) => {
     try {
@@ -301,9 +302,9 @@ exports.googleCallback = [
       const token = signToken({ id: user.user_id, role: user.role });
       
       // Redirect to frontend with token
-      res.redirect(`${process.env.CLIENT_URL}/login?token=${token}&success=google_auth_success`);
+      res.redirect(`${CLIENT_URL}/login?token=${token}&success=google_auth_success`);
     } catch (error) {
-      res.redirect(`${process.env.CLIENT_URL}/login?error=server_error`);
+      res.redirect(`${CLIENT_URL}/login?error=server_error`);
     }
   }
 ];

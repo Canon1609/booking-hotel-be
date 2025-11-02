@@ -6,6 +6,7 @@ const payOSService = require('../utils/payos.util');
 const sendEmail = require('../utils/email.util');
 const pdfService = require('../utils/pdf.util');
 const { sendInvoiceEmail, sendReviewRequestEmail, sendRefundEmail, sendRefundRequestEmail } = require('../utils/emailBooking.util');
+const { FRONTEND_URL } = require('../config/config');
 
 // ========== LUỒNG 1: ĐẶT PHÒNG TRỰC TUYẾN (ONLINE) ==========
 
@@ -1101,7 +1102,7 @@ exports.getMyBookings = async (req, res) => {
         has_review: booking.reviews && booking.reviews.length > 0,
         can_review: booking.booking_status === 'checked_out' && (!booking.reviews || booking.reviews.length === 0),
         review_link: booking.booking_status === 'checked_out' && (!booking.reviews || booking.reviews.length === 0) 
-          ? `${process.env.FRONTEND_URL || 'http://localhost:3000'}/review/${booking.booking_code}` 
+          ? `${FRONTEND_URL}/review/${booking.booking_code}` 
           : null
         };
       }),

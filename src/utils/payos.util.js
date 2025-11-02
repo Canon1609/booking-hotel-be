@@ -1,4 +1,5 @@
 const { PayOS } = require('@payos/node');
+const { CLIENT_URL } = require('../config/config');
 
 class PayOSService {
   constructor() {
@@ -50,8 +51,8 @@ class PayOSService {
           quantity: 1,
           price: parseInt(amount)
         }],
-        returnUrl: returnUrl || `${process.env.CLIENT_URL}/payment/success`,
-        cancelUrl: cancelUrl || `${process.env.CLIENT_URL}/payment/cancel`,
+        returnUrl: returnUrl || `${CLIENT_URL}/payment/success`,
+        cancelUrl: cancelUrl || `${CLIENT_URL}/payment/cancel`,
         buyerName: buyerName || 'Khách hàng',
         buyerEmail: buyerEmail || '',
         buyerPhone: buyerPhone || '',

@@ -17,8 +17,13 @@ DB_PASSWORD=your_password
 DB_NAME=hotel_booking
 
 # Server Configuration
+SERVER_URL=http://localhost:5000
 PORT=5000
 NODE_ENV=development
+
+# Frontend/Client URLs
+FRONTEND_URL=http://localhost:3000
+CLIENT_URL=http://localhost:3000
 
 # JWT Configuration
 JWT_SECRET=your_jwt_secret_key_here
@@ -36,7 +41,9 @@ REDIS_PASSWORD=
 PAYOS_CLIENT_ID=your_payos_client_id
 PAYOS_API_KEY=your_payos_api_key
 PAYOS_CHECKSUM_KEY=your_payos_checksum_key
-PAYOS_WEBHOOK_URL=http://localhost:5000/api/bookings/payment-webhook
+PAYOS_WEBHOOK_URL=${SERVER_URL}/api/bookings/payment-webhook
+# Lưu ý: PayOS cần absolute URL. Khi deploy, thay bằng URL production.
+# Ví dụ: PAYOS_WEBHOOK_URL=https://api.yourdomain.com/api/bookings/payment-webhook
 
 # Email Configuration (Optional)
 SMTP_HOST=smtp.gmail.com

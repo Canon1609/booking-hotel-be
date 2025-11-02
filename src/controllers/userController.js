@@ -172,7 +172,8 @@ exports.createUser = async (req, res) => {
 
     // Gửi email xác nhận cho user mới
     const token = signToken({ id: newUser.user_id, role: newUser.role });
-    const confirmationLink = `${process.env.CLIENT_URL}/verify-email?token=${token}`;
+    const { CLIENT_URL } = require('../config/config');
+    const confirmationLink = `${CLIENT_URL}/verify-email?token=${token}`;
     const emailSubject = '🎉 Chào mừng đến với Bean Hotel - Xác nhận tài khoản';
     const emailText = `Chào ${full_name},\n\nChào mừng bạn đến với Bean Hotel!\n\nTài khoản của bạn đã được tạo bởi quản trị viên. Vui lòng nhấp vào đường dẫn sau để xác nhận đăng ký tài khoản: ${confirmationLink}\n\nTrân trọng,\nĐội ngũ Bean Hotel`;
     const emailHTML = `

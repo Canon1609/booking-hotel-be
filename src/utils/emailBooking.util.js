@@ -259,7 +259,8 @@ const sendReviewRequestEmail = async (booking, user) => {
     const numRooms = bookingRooms.length || (booking.room_id ? 1 : 0);
 
     // Tạo link đánh giá (frontend sẽ xử lý phần này)
-    const reviewLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/review/${booking.booking_code}`;
+    const { FRONTEND_URL } = require('../config/config');
+    const reviewLink = `${FRONTEND_URL}/review/${booking.booking_code}`;
 
     const emailContent = `
       <!DOCTYPE html>

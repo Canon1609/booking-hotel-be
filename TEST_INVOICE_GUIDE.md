@@ -4,10 +4,24 @@
 
 Chức năng in hóa đơn PDF cho phép lễ tân in hóa đơn chi tiết khi khách check-out hoặc bất cứ lúc nào cần thiết. Hóa đơn bao gồm đầy đủ thông tin về phòng, dịch vụ, thanh toán và số tiền còn phải thu.
 
+## ⚙️ Cấu Hình Server URL
+
+**Quan trọng:** Tất cả URL trong file này sử dụng `http://localhost:5000/api` làm ví dụ.
+
+Trong môi trường thực tế, hãy sử dụng biến môi trường `SERVER_URL` từ file `.env`:
+
+```env
+SERVER_URL=http://localhost:5000
+# Hoặc khi deploy:
+SERVER_URL=https://your-domain.com
+```
+
+Khi deploy, chỉ cần thay đổi `SERVER_URL` trong file `.env`, tất cả URL sẽ tự động cập nhật.
+
 ## API Endpoint
 
 ```
-GET /api/bookings/:id/invoice/pdf
+GET http://localhost:5000/api/bookings/:id/invoice/pdf
 ```
 
 **Authentication:** Required (Admin/Staff only)
@@ -207,8 +221,10 @@ Authorization: Bearer {admin_token}
 Tạo request mới trong Postman:
 
 ```
-GET {{base_url}}/api/bookings/{{booking_id}}/invoice/pdf
+GET http://localhost:5000/api/bookings/{booking_id}/invoice/pdf
 ```
+
+**Lưu ý:** Thay `{booking_id}` bằng ID thực tế của booking.
 
 ### 2. Headers
 
@@ -231,11 +247,15 @@ Authorization: Bearer {{admin_token}}
 
 ```bash
 curl -X GET \
-  http://localhost:3000/api/bookings/1/invoice/pdf \
+  http://localhost:5000/api/bookings/1/invoice/pdf \
   -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
   -H "Content-Type: application/pdf" \
   --output invoice.pdf
 ```
+
+**Lưu ý:** 
+- Thay `1` bằng `booking_id` thực tế
+- Thay `YOUR_ADMIN_TOKEN` bằng token admin/staff thực tế
 
 ## Test Với Browser (Development)
 

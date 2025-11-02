@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');  // Import cors
 const session = require('express-session');
 const passport = require('./config/passport');
+const { FRONTEND_URL } = require('./config/config');
 const app = express();
 const userRoutes = require('./routes/userRoutes');
 const authRoutes = require('./routes/authRoutes');
@@ -42,7 +43,7 @@ app.use(passport.session());
 
 // Cấu hình CORS
 app.use(cors({
-  origin: 'http://localhost:3000',  // Cấp quyền cho frontend từ domain này (có thể thay bằng domain của frontend)
+  origin: FRONTEND_URL,  // Cấp quyền cho frontend từ domain này (có thể thay bằng domain của frontend)
   methods: ['GET', 'POST', 'PUT', 'DELETE'],  // Cho phép các method này
   allowedHeaders: ['Content-Type', 'Authorization'],  // Các header cho phép
 }));

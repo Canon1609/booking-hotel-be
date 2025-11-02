@@ -1,7 +1,6 @@
 const app = require('./app');  // Import app từ app.js
 const mysql = require('mysql2/promise');
-
-const PORT = process.env.PORT || 5000;
+const { SERVER_URL, PORT } = require('./config/config');
 
 // Hàm tạo database nếu chưa tồn tại
 async function createDatabaseIfNotExists() {
@@ -146,7 +145,7 @@ async function startServer() {
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 Database: ${process.env.DB_NAME || 'hotel_booking'}`);
-      console.log(`🌐 API: http://localhost:${PORT}/api`);
+      console.log(`🌐 API: ${SERVER_URL}/api`);
     });
   } catch (error) {
     console.error('❌ Lỗi khởi động server:', error.message);

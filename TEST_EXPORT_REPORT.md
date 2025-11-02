@@ -9,6 +9,22 @@ Hệ thống hỗ trợ 3 loại báo cáo chính:
 
 Tất cả các báo cáo đều yêu cầu quyền Admin/Staff.
 
+## ⚙️ Cấu Hình Server URL
+
+**Quan trọng:** Tất cả URL trong file này sử dụng `http://localhost:5000/api` làm ví dụ. 
+
+Trong môi trường thực tế, hãy sử dụng biến môi trường `SERVER_URL` từ file `.env`:
+
+```env
+SERVER_URL=http://localhost:5000
+# Hoặc khi deploy:
+SERVER_URL=https://your-domain.com
+```
+
+Khi deploy, chỉ cần thay đổi `SERVER_URL` trong file `.env`, tất cả URL sẽ tự động cập nhật.
+
+**Lưu ý:** Các ví dụ trong file này dùng `http://localhost:5000` để dễ test local. Khi deploy, thay bằng URL production của bạn.
+
 ## 1. BÁO CÁO DOANH THU (REVENUE REPORTS) - EXCEL
 
 ### API Endpoint
@@ -587,7 +603,10 @@ Trước khi release, đảm bảo:
 
 ## Ghi Chú
 
-- **Base URL:** Tất cả API endpoints sử dụng `http://localhost:5000/api`
+- **Base URL:** 
+  - Development: `http://localhost:5000/api` (mặc định)
+  - Production: Cấu hình trong file `.env` với `SERVER_URL=https://your-domain.com`
+  - Tất cả code đã được tách biệt, sử dụng `process.env.SERVER_URL` từ file config
 - Tất cả báo cáo đều yêu cầu quyền Admin/Staff
 - Thời gian tính theo timezone Asia/Ho_Chi_Minh
 - Excel reports sử dụng thư viện ExcelJS
