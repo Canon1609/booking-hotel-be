@@ -15,11 +15,11 @@ const RoomPrice = sequelize.define('RoomPrice', {
     references: { model: 'room_types', key: 'room_type_id' }
   },
   start_date: {
-    type: DataTypes.DATE,
+    type: DataTypes.DATEONLY,
     allowNull: false
   },
   end_date: {
-    type: DataTypes.DATE,
+    type: DataTypes.DATEONLY,
     allowNull: false
   },
   price_per_night: {

@@ -234,12 +234,12 @@ exports.createTempBooking = async (req, res) => {
       });
     }
 
-    // Lấy giá phòng
+    // Lấy giá phòng (đảm bảo bản ghi giá bao phủ toàn bộ khoảng ngày ở)
     const roomPrice = await RoomPrice.findOne({
       where: {
         room_type_id,
         start_date: { [Op.lte]: checkIn.format('YYYY-MM-DD') },
-        end_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
+        end_date: { [Op.gte]: checkOut.clone().subtract(1, 'day').format('YYYY-MM-DD') }
       },
       order: [['start_date', 'ASC']]
     });
@@ -905,12 +905,12 @@ exports.createWalkInBooking = async (req, res) => {
       return res.status(400).json({ message: 'Loại phòng này đã hết phòng trống trong khoảng thời gian này' });
     }
 
-    // Lấy giá phòng
+    // Lấy giá phòng (đảm bảo bản ghi giá bao phủ toàn bộ khoảng ngày ở)
     const roomPrice = await RoomPrice.findOne({
       where: {
         room_type_id,
         start_date: { [Op.lte]: checkIn.format('YYYY-MM-DD') },
-        end_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
+        end_date: { [Op.gte]: checkOut.clone().subtract(1, 'day').format('YYYY-MM-DD') }
       },
       order: [['start_date', 'ASC']]
     });
@@ -2507,12 +2507,12 @@ exports.createWalkInAndCheckIn = async (req, res) => {
       return res.status(400).json({ message: 'Phòng đã được đặt trong khoảng thời gian này' });
     }
 
-    // Lấy giá phòng
+    // Lấy giá phòng (đảm bảo bản ghi giá bao phủ toàn bộ khoảng ngày ở)
     const roomPrice = await RoomPrice.findOne({
       where: {
         room_type_id: room.room_type_id,
         start_date: { [Op.lte]: checkIn.format('YYYY-MM-DD') },
-        end_date: { [Op.gte]: checkIn.format('YYYY-MM-DD') }
+        end_date: { [Op.gte]: checkOut.clone().subtract(1, 'day').format('YYYY-MM-DD') }
       },
       order: [['start_date', 'ASC']]
     });
