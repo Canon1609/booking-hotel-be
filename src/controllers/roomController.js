@@ -166,8 +166,16 @@ exports.searchAvailability = async (req, res) => {
 
     // Build base where for Room, RoomType
     const roomWhere = {};
-    if (hotel_id) roomWhere.hotel_id = hotel_id;
-    if (room_type_id) roomWhere.room_type_id = room_type_id;
+    // Keep a copy that does NOT exclude booked/held rooms for total counting
+    const baseRoomWhere = {};
+    if (hotel_id) {
+      roomWhere.hotel_id = hotel_id;
+      baseRoomWhere.hotel_id = hotel_id;
+    }
+    if (room_type_id) {
+      roomWhere.room_type_id = room_type_id;
+      baseRoomWhere.room_type_id = room_type_id;
+    }
 
     // Exclude rooms held by temp bookings (Redis) that overlap the requested dates
     let heldRoomIds = [];
@@ -190,6 +198,7 @@ exports.searchAvailability = async (req, res) => {
     }
     if (heldRoomIds.length > 0) {
       roomWhere.room_id = { [Op.notIn]: heldRoomIds };
+      // NOTE: baseRoomWhere intentionally does NOT exclude held rooms
     }
 
     // Current price record that covers the stay start date
@@ -230,6 +239,7 @@ exports.searchAvailability = async (req, res) => {
     // Loại trừ các phòng đã được đặt
     if (bookedRoomIds.length > 0) {
       roomWhere.room_id = { [Op.notIn]: bookedRoomIds };
+      // baseRoomWhere keeps all rooms for total counts
     }
 
     // Sorting
@@ -289,9 +299,9 @@ exports.searchAvailability = async (req, res) => {
       }
     });
 
-    // Get total rooms per room type (respecting base roomWhere like hotel_id/room_type_id and excluding temp holds)
+    // Get total rooms per room type (respecting only base filters; DO NOT exclude booked/held)
     const totalRoomsRaw = await Room.findAll({
-      where: { ...roomWhere },
+      where: { ...baseRoomWhere },
       attributes: [
         'room_type_id',
         [Sequelize.fn('COUNT', Sequelize.col('room_id')), 'total_rooms']
@@ -319,7 +329,8 @@ exports.searchAvailability = async (req, res) => {
         total_rooms: totalRooms,
         booked_rooms: Math.max(totalRooms - availableRooms, 0),
         available_rooms: availableRooms,
-        sold_out: availableRooms === 0
+        sold_out: availableRooms === 0,
+        availability_text: availableRooms > 0 ? `Còn ${availableRooms} phòng` : 'Hết phòng'
       };
     }).sort((a, b) => a.room_type_id - b.room_type_id);
 

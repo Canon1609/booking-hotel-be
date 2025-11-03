@@ -305,84 +305,60 @@ Headers: Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
   "total": 2,
   "rooms": [
     {
-      "room_id": 1,
+      "room_id": 101,
       "hotel": {
         "hotel_id": 1,
-        "hotel_name": "Khách sạn ABC",
-        "address": "123 Đường ABC",
-        "city": "TP.HCM"
+        "name": "Khách sạn ABC",
+        "address": "123 Đường ABC, Quận 1, TP.HCM",
+        "phone": "+84-28-1234-5678",
+        "email": "contact@abc-hotel.vn",
+        "images": ["hotel-1.jpg"]
       },
       "room_type": {
         "room_type_id": 1,
         "room_type_name": "Deluxe",
         "capacity": 2,
-        "images": ["room1.jpg"],
-        "amenities": {"wifi": "miễn phí"},
+        "images": ["deluxe-1.jpg"],
+        "amenities": {"wifi": "miễn phí", "điều_hoà": true},
         "area": 30,
         "prices": [
           {
             "price_id": 10,
-            "start_date": "2025-10-01T00:00:00.000Z",
-            "end_date": "2025-10-31T00:00:00.000Z",
+            "start_date": "2025-11-01T00:00:00.000Z",
+            "end_date": "2025-12-31T00:00:00.000Z",
             "price_per_night": 1200000
           }
         ]
       }
     }
+  ],
+  "summary_by_room_type": [
+    {
+      "room_type_id": 1,
+      "room_type_name": "Deluxe",
+      "capacity": 2,
+      "amenities": {"wifi": "miễn phí", "điều_hoà": true},
+      "area": 30,
+      "total_rooms": 5,
+      "booked_rooms": 3,
+      "available_rooms": 2,
+      "sold_out": false,
+      "availability_text": "Còn 2 phòng"
+    },
+    {
+      "room_type_id": 2,
+      "room_type_name": "Suite",
+      "capacity": 3,
+      "amenities": {"wifi": "miễn phí"},
+      "area": 45,
+      "total_rooms": 4,
+      "booked_rooms": 4,
+      "available_rooms": 0,
+      "sold_out": true,
+      "availability_text": "Hết phòng"
+    }
   ]
-    "summary_by_room_type": [
-        {
-            "room_type_id": 1,
-            "room_type_name": "Phòng Đơn Tiêu Chuẩn",
-            "capacity": 1,
-            "amenities": [
-                "WiFi miễn phí",
-                "Điều hòa",
-                "Tivi",
-                "Tủ lạnh"
-            ],
-            "area": 20,
-            "total_rooms": 5,
-            "booked_rooms": 0,
-            "available_rooms": 5,
-            "sold_out": false
-        },
-        {
-            "room_type_id": 2,
-            "room_type_name": "Phòng Đơn Vip",
-            "capacity": 1,
-            "amenities": [
-                "WiFi miễn phí",
-                "Điều hòa",
-                "Tivi",
-                "Tủ lạnh",
-                "Nước nóng",
-                "Ban công"
-            ],
-            "area": 25,
-            "total_rooms": 5,
-            "booked_rooms": 0,
-            "available_rooms": 5,
-            "sold_out": false
-        },
-        {
-            "room_type_id": 3,
-            "total_rooms": 5,
-            "booked_rooms": 5,
-            "available_rooms": 0,
-            "sold_out": true
-        },
-        {
-            "room_type_id": 4,
-            "total_rooms": 5,
-            "booked_rooms": 5,
-            "available_rooms": 0,
-            "sold_out": true
-        }
-    ],
-    "statusCode": 200
 }
-
 ```
 
 Ghi chú:
