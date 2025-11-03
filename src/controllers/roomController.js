@@ -319,6 +319,28 @@ exports.searchAvailability = async (req, res) => {
       ...Object.keys(totalByType).map(id => String(id)),
       ...Object.keys(availableCountByType).map(id => String(id))
     ]);
+    // Backfill RoomType info for types that don't appear in available rows (sold-out)
+    const missingTypeIds = Array.from(typeIds)
+      .map(id => parseInt(id, 10))
+      .filter(id => !roomTypeInfoById[id]);
+
+    if (missingTypeIds.length > 0) {
+      const missingTypes = await RoomType.findAll({
+        where: { room_type_id: missingTypeIds },
+        attributes: ['room_type_id', 'room_type_name', 'capacity', 'images', 'amenities', 'area']
+      });
+      missingTypes.forEach(rt => {
+        const data = rt.get({ plain: true });
+        roomTypeInfoById[data.room_type_id] = {
+          room_type_id: data.room_type_id,
+          room_type_name: data.room_type_name,
+          capacity: data.capacity,
+          amenities: data.amenities,
+          area: data.area,
+          images: data.images
+        };
+      });
+    }
     const summaryByRoomType = Array.from(typeIds).map(id => {
       const roomTypeId = parseInt(id, 10);
       const totalRooms = totalByType[roomTypeId] || 0;
