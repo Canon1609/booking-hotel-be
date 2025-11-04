@@ -36,6 +36,16 @@ app.use(responseMiddleware); // Ensure statusCode is present in all JSON respons
 // Để Nginx/Proxy truyền IP thật cho rate-limit
 app.set('trust proxy', 1);
 
+// CORS (đặt trước rate-limit để preflight không bị chặn)
+const corsOptions = {
+  origin: FRONTEND_URL || true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 204
+};
+app.use(cors(corsOptions));
+
 // Rate limit cấu hình qua ENV
 const GLOBAL_WINDOW_MINUTES = parseInt(process.env.RATE_LIMIT_WINDOW_MINUTES || '15');
 const GLOBAL_MAX = parseInt(process.env.RATE_LIMIT_MAX || '50');
@@ -56,7 +66,7 @@ const globalLimiter = rateLimit({
   max: GLOBAL_MAX,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: isWhitelisted,
+  skip: (req) => isWhitelisted(req) || req.method === 'OPTIONS',
   message: { message: 'Quá nhiều yêu cầu, vui lòng thử lại sau.', statusCode: 429 }
 });
 
@@ -65,7 +75,7 @@ const chatLimiter = rateLimit({
   max: CHAT_MAX_PER_MINUTE,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: isWhitelisted,
+  skip: (req) => isWhitelisted(req) || req.method === 'OPTIONS',
   message: { message: 'Bạn đang nhắn quá nhanh, vui lòng thử lại sau.', statusCode: 429 }
 });
 
@@ -82,12 +92,7 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Cấu hình CORS
-app.use(cors({
-  origin: FRONTEND_URL,  // Cấp quyền cho frontend từ domain này (có thể thay bằng domain của frontend)
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],  // Cho phép các method này
-  allowedHeaders: ['Content-Type', 'Authorization'],  // Các header cho phép
-}));
+// (CORS đã cấu hình phía trên)
 
 // Routes
 app.use('/api/users', userRoutes);
