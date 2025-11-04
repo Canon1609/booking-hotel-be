@@ -36,8 +36,8 @@ router.get('/', protect, adminOnly, bookingController.getBookings);
 // Lấy booking theo ID - User (chỉ booking của mình) hoặc Admin
 router.get('/:id', protect, bookingController.getBookingById);
 
-// Tìm booking theo mã đặt phòng (cho check-in) - Admin/Staff
-router.get('/code/:booking_code', protect, adminOnly, bookingController.findBookingByCode);
+// Tìm booking theo mã đặt phòng - User (bất kỳ booking code) hoặc Admin
+router.get('/code/:booking_code', protect, bookingController.findBookingByCode);
 
 // Lấy danh sách phòng trống của một loại phòng - Admin/Staff
 router.get('/available-rooms', protect, adminOnly, bookingController.getAvailableRoomsForType);

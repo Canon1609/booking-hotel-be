@@ -15,6 +15,7 @@ const BookingRoom = require('./bookingRoom.model');
 const Review = require('./review.model');
 const Category = require('./category.model');
 const Post = require('./post.model');
+const ChatSession = require('./chatSession.model');
 
 // ========== Associations ==========
 // Tạm thời chỉ giữ lại các associations cần thiết để tránh lỗi "Too many keys"
@@ -86,6 +87,10 @@ Review.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
 Booking.hasMany(Review, { foreignKey: 'booking_id', as: 'reviews' });
 Review.belongsTo(Booking, { foreignKey: 'booking_id', as: 'booking' });
 
+// User ↔ ChatSession
+User.hasMany(ChatSession, { foreignKey: 'user_id', as: 'chat_sessions' });
+ChatSession.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
+
 module.exports = {
   sequelize,
   User,
@@ -101,7 +106,8 @@ module.exports = {
   BookingRoom,
   Review,
   Category,
-  Post
+  Post,
+  ChatSession
 };
 
 

@@ -274,7 +274,46 @@ async function ensurePaymentDateColumn() {
   }
 }
 
+// Tạo bảng chat_sessions nếu chưa tồn tại
+async function ensureChatSessionsTable() {
+  try {
+    const dbName = process.env.DB_NAME || 'hotel_booking';
+    
+    // Kiểm tra xem table đã tồn tại chưa
+    const [tables] = await sequelize.query(`
+      SELECT COUNT(*) AS cnt 
+      FROM INFORMATION_SCHEMA.TABLES 
+      WHERE TABLE_SCHEMA = ? 
+      AND TABLE_NAME = 'chat_sessions'
+    `, { replacements: [dbName] });
+    
+    const tableExists = Array.isArray(tables) ? tables[0].cnt : tables.cnt;
+    
+    if (Number(tableExists) === 0) {
+      // Tạo table chat_sessions
+      await sequelize.query(`
+        CREATE TABLE \`chat_sessions\` (
+          \`session_id\` VARCHAR(36) NOT NULL PRIMARY KEY,
+          \`user_id\` INT NULL,
+          \`chat_history\` JSON NOT NULL DEFAULT ('[]'),
+          \`created_at\` DATETIME NOT NULL,
+          \`updated_at\` DATETIME NOT NULL,
+          FOREIGN KEY (\`user_id\`) REFERENCES \`users\`(\`user_id\`) ON DELETE SET NULL,
+          INDEX \`idx_user_id\` (\`user_id\`),
+          INDEX \`idx_updated_at\` (\`updated_at\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+      console.log('✅ Created chat_sessions table');
+    } else {
+      console.log('✅ chat_sessions table already exists');
+    }
+  } catch (error) {
+    console.error('Error creating chat_sessions table:', error);
+  }
+}
+
 module.exports.ensureRoomPricesUpdatedAt = ensureRoomPricesUpdatedAt;
 module.exports.ensurePaymentDateColumn = ensurePaymentDateColumn;
+module.exports.ensureChatSessionsTable = ensureChatSessionsTable;
 
 

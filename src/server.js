@@ -45,6 +45,7 @@ async function syncDatabase() {
     const ensureReviewsImages = dbUtil.ensureReviewsImages;
     const ensureBookingPaymentStatusEnum = dbUtil.ensureBookingPaymentStatusEnum;
     const ensurePaymentDateColumn = dbUtil.ensurePaymentDateColumn;
+    const ensureChatSessionsTable = dbUtil.ensureChatSessionsTable;
     
     await sequelize.authenticate();
     console.log('Database connected');
@@ -118,6 +119,10 @@ async function syncDatabase() {
     // Chạy migration cho payment_date column
     console.log('Checking payment_date column...');
     await ensurePaymentDateColumn();
+    
+    // Chạy migration cho chat_sessions table
+    console.log('Checking chat_sessions table...');
+    await ensureChatSessionsTable();
     
     // Chạy migration một lần cho Booking room type structure
     if (process.env.DB_RUN_BOOKING_ROOM_TYPE_MIGRATION === 'true') {

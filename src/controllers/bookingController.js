@@ -1271,10 +1271,14 @@ exports.getBookingById = async (req, res) => {
   }
 };
 
-// Tìm booking theo mã đặt phòng (cho check-in)
+// Tìm booking theo mã đặt phòng
+// User thường: chỉ có thể tra cứu booking của chính mình
+// Admin: có thể tra cứu bất kỳ booking code nào
 exports.findBookingByCode = async (req, res) => {
   try {
     const { booking_code } = req.params;
+    const userId = req.user.id;
+    const isAdmin = req.user.role === 'admin';
 
     const booking = await Booking.findOne({
       where: { booking_code },
@@ -1301,6 +1305,13 @@ exports.findBookingByCode = async (req, res) => {
 
     if (!booking) {
       return res.status(404).json({ message: 'Không tìm thấy đặt phòng với mã này' });
+    }
+
+    // Kiểm tra quyền: User thường chỉ có thể xem booking của chính mình
+    if (!isAdmin && booking.user_id !== userId) {
+      return res.status(403).json({ 
+        message: 'Bạn chỉ có thể tra cứu booking code của chính mình' 
+      });
     }
 
     // Lấy danh sách phòng từ BookingRoom
