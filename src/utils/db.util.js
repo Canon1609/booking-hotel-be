@@ -1,4 +1,6 @@
 const { sequelize } = require('../config/database');
+const { User } = require('../models');
+const bcrypt = require('bcryptjs');
 
 async function columnExists(tableName, columnName) {
   const dbName = process.env.DB_NAME;
@@ -316,4 +318,38 @@ module.exports.ensureRoomPricesUpdatedAt = ensureRoomPricesUpdatedAt;
 module.exports.ensurePaymentDateColumn = ensurePaymentDateColumn;
 module.exports.ensureChatSessionsTable = ensureChatSessionsTable;
 
+
+// Tạo tài khoản admin ban đầu nếu chưa có
+async function ensureInitialAdminUser() {
+  try {
+    const existingAdmin = await User.findOne({ where: { role: 'admin' } });
+    if (existingAdmin) {
+      console.log('✅ Admin user already exists');
+      return;
+    }
+
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    const adminName = process.env.ADMIN_FULL_NAME || 'Administrator';
+
+    if (!adminEmail || !adminPassword) {
+      console.warn('⚠️ ADMIN_EMAIL/ADMIN_PASSWORD not set. Skipping initial admin creation.');
+      return;
+    }
+
+    const password_hashed = await bcrypt.hash(adminPassword, 10);
+    const adminUser = await User.create({
+      full_name: adminName,
+      email: adminEmail,
+      password_hashed,
+      role: 'admin',
+      is_verified: true
+    });
+    console.log(`✅ Created initial admin: ${adminUser.email}`);
+  } catch (error) {
+    console.error('Error creating initial admin user:', error);
+  }
+}
+
+module.exports.ensureInitialAdminUser = ensureInitialAdminUser;
 

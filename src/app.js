@@ -4,6 +4,7 @@ const session = require('express-session');
 const passport = require('./config/passport');
 const { FRONTEND_URL } = require('./config/config');
 const app = express();
+const rateLimit = require('express-rate-limit');
 const userRoutes = require('./routes/userRoutes');
 const authRoutes = require('./routes/authRoutes');
 const hotelRoutes = require('./routes/hotelRoutes');
@@ -31,6 +32,45 @@ const payOSService = require('./utils/payos.util');
 app.use(express.json());  // Middleware để xử lý JSON request body
 app.use(express.urlencoded({ extended: true })); // Middleware để xử lý form-data
 app.use(responseMiddleware); // Ensure statusCode is present in all JSON responses
+
+// Để Nginx/Proxy truyền IP thật cho rate-limit
+app.set('trust proxy', 1);
+
+// Rate limit cấu hình qua ENV
+const GLOBAL_WINDOW_MINUTES = parseInt(process.env.RATE_LIMIT_WINDOW_MINUTES || '15');
+const GLOBAL_MAX = parseInt(process.env.RATE_LIMIT_MAX || '50');
+const CHAT_MAX_PER_MINUTE = parseInt(process.env.CHAT_RATE_LIMIT_MAX || '20');
+const WHITELIST = (process.env.RATE_LIMIT_WHITELIST || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
+const isWhitelisted = (req) => {
+  // Kiểm tra IP trực tiếp và X-Forwarded-For đầu tiên
+  const ip = (req.headers['x-forwarded-for']?.split(',')[0] || req.ip || '').trim();
+  return WHITELIST.includes(ip);
+};
+
+const globalLimiter = rateLimit({
+  windowMs: GLOBAL_WINDOW_MINUTES * 60 * 1000,
+  max: GLOBAL_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: isWhitelisted,
+  message: { message: 'Quá nhiều yêu cầu, vui lòng thử lại sau.', statusCode: 429 }
+});
+
+const chatLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 phút
+  max: CHAT_MAX_PER_MINUTE,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: isWhitelisted,
+  message: { message: 'Bạn đang nhắn quá nhanh, vui lòng thử lại sau.', statusCode: 429 }
+});
+
+// Áp dụng rate limit: Global trước, rồi giới hạn riêng cho /api/chat
+app.use(globalLimiter);
 
 // Session và Passport
 app.use(session({
@@ -63,6 +103,7 @@ app.use('/api/posts', postRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/chat', chatLimiter);
 app.use('/api', chatRoutes);
 
 // 404 handler

@@ -45,6 +45,7 @@ async function syncDatabase() {
     const ensureReviewsImages = dbUtil.ensureReviewsImages;
     const ensureBookingPaymentStatusEnum = dbUtil.ensureBookingPaymentStatusEnum;
     const ensurePaymentDateColumn = dbUtil.ensurePaymentDateColumn;
+    const ensureInitialAdminUser = dbUtil.ensureInitialAdminUser;
     const ensureChatSessionsTable = dbUtil.ensureChatSessionsTable;
     
     await sequelize.authenticate();
@@ -124,6 +125,10 @@ async function syncDatabase() {
     console.log('Checking chat_sessions table...');
     await ensureChatSessionsTable();
     
+    // Tạo admin mặc định nếu cần
+    console.log('Checking initial admin user...');
+    await ensureInitialAdminUser();
+
     // Chạy migration một lần cho Booking room type structure
     if (process.env.DB_RUN_BOOKING_ROOM_TYPE_MIGRATION === 'true') {
       console.log('Running one-time Booking room type structure migration...');

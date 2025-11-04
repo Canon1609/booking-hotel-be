@@ -2,7 +2,6 @@ const express = require('express');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const axios = require('axios');
 const moment = require('moment-timezone');
-const { v4: uuidv4 } = require('uuid');
 const { generateOpenAPISpec, convertToGeminiFunctions } = require('./openapi.generator');
 const { SERVER_URL } = require('../config/config');
 const { ChatSession, User } = require('../models');
@@ -293,7 +292,8 @@ async function saveChatHistory(sessionId, userId, existingHistory, userMessage, 
         console.log(`✅ Created new session ${sessionId} with ${updatedHistory.length} messages`);
       }
     } else {
-      // Create new session
+      // Create new session (dynamic import for ESM-only uuid)
+      const { v4: uuidv4 } = await import('uuid');
       finalSessionId = uuidv4();
       chatSession = await ChatSession.create({
         session_id: finalSessionId,
