@@ -37,7 +37,7 @@ app.set('trust proxy', 1);
 
 // CORS (đặt trước rate-limit để preflight không bị chặn)
 const corsOptions = {
-  origin: [process.env.CLIENT_URL, 'http://localhost:3000'],
+  origin: [process.env.CLIENT_URL, process.env.FRONTEND_URL, 'http://localhost:3000'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
