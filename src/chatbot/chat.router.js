@@ -88,7 +88,8 @@ async function executeApiTool(functionCall, authToken = null) {
   }
   
   // Check if function requires auth but no token provided
-  if (functionMapUser[name] && !authToken) {
+  // Only require auth if the function exists ONLY in user map (not public)
+  if (!authToken && functionMapUser[name] && !functionMapPublic[name]) {
     // Return error response instead of throwing, so Gemini can handle it gracefully
     return {
       error: true,
@@ -230,6 +231,31 @@ async function executeApiTool(functionCall, authToken = null) {
       }
       
       console.log(`✅ API response status (${fullUrl}): ${response.status}`);
+      // Detect accidental HTML (frontend) response instead of JSON API
+      const contentType = (response.headers && (response.headers['content-type'] || response.headers['Content-Type'])) || '';
+      const isHtml = typeof response.data === 'string' && response.data.trim().toLowerCase().startsWith('<!doctype html');
+      if (contentType.includes('text/html') || isHtml) {
+        console.error(`⚠️ Received HTML instead of JSON from ${fullUrl}. This likely points to the frontend domain. Will try next base URL if available.`);
+        errors.push({
+          baseUrl: sanitizedBaseUrl,
+          url: fullUrl,
+          error: { message: 'Received HTML instead of JSON (likely wrong SERVER_URL domain)' }
+        });
+        if (attempt < baseUrls.length) {
+          console.log(`🔁 Trying next base URL due to HTML response (remaining attempts: ${baseUrls.length - attempt})`);
+          continue;
+        }
+        return {
+          error: true,
+          status: 500,
+          message: 'SERVER_URL có thể đang trỏ tới domain frontend (trả HTML). Hãy dùng API domain.',
+          attempts: errors.map(e => ({
+            baseUrl: e.baseUrl,
+            status: e.error.response?.status || e.error.code || 'HTML',
+            message: e.error.response?.data?.message || e.error.message || 'HTML response'
+          }))
+        };
+      }
       return response.data;
     } catch (error) {
       console.error(`❌ API call failed on ${fullUrl}:`, error.message);
@@ -732,7 +758,7 @@ router.post('/chat', async (req, res) => {
 1. **QUAN TRỌNG - Khi người dùng yêu cầu tìm phòng, tra cứu thông tin, hoặc đặt phòng:**
    - BẮT BUỘC phải sử dụng các function tools có sẵn để lấy dữ liệu chính xác từ hệ thống
    - KHÔNG được chỉ hỏi lại người dùng mà không gọi function
-   - Ví dụ: Khi người dùng nói "tôi cần phòng vào ngày 20/11", bạn PHẢI gọi function getRoomsAvailability với check_in và check_out tương ứng
+   - Ví dụ: Khi người dùng nói "tôi cần phòng vào ngày 20/11", bạn PHẢI gọi function apiRoomsAvailabilitySearch với check_in và check_out tương ứng
    - Ví dụ: Khi người dùng nói "tra cứu mã đặt phòng ABC123", bạn PHẢI gọi function tương ứng để tra cứu
    - Sau khi có kết quả từ function, hãy trình bày thông tin một cách chi tiết, rõ ràng và thân thiện bằng tiếng Việt
    - Nếu function trả về lỗi với message "Bạn cần đăng nhập", hãy thông báo cho người dùng: "Để tra cứu thông tin đặt phòng, bạn cần đăng nhập trước. Sau khi đăng nhập, tôi sẽ có thể truy cập thông tin chi tiết về đặt phòng của bạn. Bạn muốn đăng nhập ngay bây giờ không?"
@@ -947,7 +973,10 @@ router.post('/chat', async (req, res) => {
         if (response.candidates && response.candidates[0]) {
           const parts = response.candidates[0].content?.parts;
           if (parts && parts.length > 0) {
-            text = parts.map(part => part.text || '').join(' ');
+            text = parts.map(part => {
+              if (part.text) return part.text;
+              return '';
+            }).join(' ').trim();
           }
         }
       }

@@ -1,6 +1,7 @@
 const Room = require('../models/room.model');
 const { Op, Sequelize } = require('sequelize');
 const { RoomType, RoomPrice, Booking, Hotel, BookingRoom } = require('../models');
+const moment = require('moment-timezone');
 const redisService = require('../utils/redis.util');
 
 exports.createRoom = async (req, res) => {
@@ -164,6 +165,12 @@ exports.searchAvailability = async (req, res) => {
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
+    // Normalize dates using Asia/Ho_Chi_Minh timezone to avoid UTC shift
+    const checkInTz = moment(check_in).tz('Asia/Ho_Chi_Minh');
+    const checkOutTz = moment(check_out).tz('Asia/Ho_Chi_Minh');
+    const checkInStr = checkInTz.format('YYYY-MM-DD');
+    const checkOutStr = checkOutTz.format('YYYY-MM-DD');
+
     // Build base where for Room, RoomType
     const roomWhere = {};
     // Keep a copy that does NOT exclude booked/held rooms for total counting
@@ -182,15 +189,15 @@ exports.searchAvailability = async (req, res) => {
     try {
       const allTemp = await redisService.getAllTempBookings();
       const holds = Object.values(allTemp || {});
-      const checkInDate = new Date(check_in);
-      const checkOutDate = new Date(check_out);
+      const checkInDate = checkInTz.clone();
+      const checkOutDate = checkOutTz.clone();
       heldRoomIds = holds
         .filter(tb => {
           if (!tb || !tb.room_id || !tb.check_in_date || !tb.check_out_date) return false;
-          const tbIn = new Date(tb.check_in_date);
-          const tbOut = new Date(tb.check_out_date);
+          const tbIn = moment(tb.check_in_date).tz('Asia/Ho_Chi_Minh');
+          const tbOut = moment(tb.check_out_date).tz('Asia/Ho_Chi_Minh');
           // overlap if tbIn < check_out AND tbOut > check_in
-          return tbIn < checkOutDate && tbOut > checkInDate;
+          return tbIn.isBefore(checkOutDate, 'day') && tbOut.isAfter(checkInDate, 'day');
         })
         .map(tb => tb.room_id);
     } catch (e) {
@@ -203,8 +210,8 @@ exports.searchAvailability = async (req, res) => {
 
     // Current price record that covers the stay start date
     const priceDateCondition = {
-      start_date: { [Op.lte]: new Date(check_in) },
-      end_date: { [Op.gte]: new Date(check_in) }
+      start_date: { [Op.lte]: checkInStr },
+      end_date: { [Op.gte]: checkInStr }
     };
 
     // Pricing filter
@@ -223,12 +230,10 @@ exports.searchAvailability = async (req, res) => {
         as: 'booking',
         where: {
           booking_status: { [Op.in]: ['confirmed', 'checked_in'] },
-          [Op.or]: [
-            {
-              check_in_date: { [Op.lt]: check_out },
-              check_out_date: { [Op.gt]: check_in }
-            }
-          ]
+          [Op.or]: [{
+            check_in_date: { [Op.lt]: checkOutStr },
+            check_out_date: { [Op.gt]: checkInStr }
+          }]
         },
         required: true
       }],
