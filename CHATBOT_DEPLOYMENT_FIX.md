@@ -147,7 +147,7 @@ Nếu thấy lỗi `ECONNREFUSED` hoặc URL là `localhost`, có nghĩa là `SE
 3. SSL certificate có hợp lệ không
 4. Network connectivity từ server đến chính nó
 
-### Vấn đề: Chatbot chỉ hỏi lại
+### Vấn đề: Chatbot vẫn chỉ hỏi lại
 
 **Kiểm tra:**
 1. Xem logs có function call không

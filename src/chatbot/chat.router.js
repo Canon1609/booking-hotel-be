@@ -99,10 +99,11 @@ async function executeApiTool(functionCall, authToken = null) {
   }
   
   const { method, path, operation } = funcDef;
-  const baseUrl = SERVER_URL || 'http://localhost:5000';
+  const configuredServerUrl = SERVER_URL || 'http://localhost:5000';
+  const baseUrls = [...new Set([configuredServerUrl, 'http://localhost:5000'])].filter(Boolean);
   
-  // Log SERVER_URL for debugging
-  console.log(`🌐 Using SERVER_URL: ${baseUrl}`);
+  console.log(`🌐 Preferred SERVER_URL: ${configuredServerUrl}`);
+  console.log(`🌐 Base URLs to try: ${baseUrls.join(', ')}`);
   
   // Validate and fix date parameters (check_in, check_out)
   if (args) {
@@ -184,12 +185,6 @@ async function executeApiTool(functionCall, authToken = null) {
     }
   }
   
-  const fullUrl = `${baseUrl}${url}`;
-  
-  console.log(`🔧 Executing API tool: ${method} ${fullUrl}`);
-  console.log(`📤 Args:`, JSON.stringify(args, null, 2));
-  console.log(`🔐 Auth:`, authToken ? 'Yes (user authenticated)' : 'No (public)');
-  
   // Build axios config with auth header if token provided
   const axiosConfig = {};
   if (authToken) {
@@ -198,60 +193,107 @@ async function executeApiTool(functionCall, authToken = null) {
     };
   }
   
-  try {
-    let response;
+  const errors = [];
+  let attempt = 0;
+  
+  for (const baseUrl of baseUrls) {
+    attempt += 1;
+    const sanitizedBaseUrl = baseUrl.replace(/\/$/, '');
+    const fullUrl = `${sanitizedBaseUrl}${url}`;
     
-    // Make HTTP request based on method
-    switch (method) {
-      case 'GET':
-        response = await axios.get(fullUrl, axiosConfig);
-        break;
-      case 'POST':
-        response = await axios.post(fullUrl, args.body || {}, axiosConfig);
-        break;
-      case 'PUT':
-        response = await axios.put(fullUrl, args.body || {}, axiosConfig);
-        break;
-      case 'DELETE':
-        response = await axios.delete(fullUrl, axiosConfig);
-        break;
-      case 'PATCH':
-        response = await axios.patch(fullUrl, args.body || {}, axiosConfig);
-        break;
-      default:
-        throw new Error(`Unsupported HTTP method: ${method}`);
+    console.log(`🔧 Executing API tool (attempt ${attempt}/${baseUrls.length}): ${method} ${fullUrl}`);
+    console.log(`📤 Args:`, JSON.stringify(args, null, 2));
+    console.log(`🔐 Auth:`, authToken ? 'Yes (user authenticated)' : 'No (public)');
+    
+    try {
+      let response;
+      
+      // Make HTTP request based on method
+      switch (method) {
+        case 'GET':
+          response = await axios.get(fullUrl, axiosConfig);
+          break;
+        case 'POST':
+          response = await axios.post(fullUrl, args.body || {}, axiosConfig);
+          break;
+        case 'PUT':
+          response = await axios.put(fullUrl, args.body || {}, axiosConfig);
+          break;
+        case 'DELETE':
+          response = await axios.delete(fullUrl, axiosConfig);
+          break;
+        case 'PATCH':
+          response = await axios.patch(fullUrl, args.body || {}, axiosConfig);
+          break;
+        default:
+          throw new Error(`Unsupported HTTP method: ${method}`);
+      }
+      
+      console.log(`✅ API response status (${fullUrl}): ${response.status}`);
+      return response.data;
+    } catch (error) {
+      console.error(`❌ API call failed on ${fullUrl}:`, error.message);
+      console.error(`❌ Full error:`, error);
+      
+      errors.push({
+        baseUrl: sanitizedBaseUrl,
+        url: fullUrl,
+        error
+      });
+      
+      // If there are more base URLs to try, continue loop
+      if (attempt < baseUrls.length) {
+        console.log(`🔁 Trying next base URL (remaining attempts: ${baseUrls.length - attempt})`);
+        continue;
+      }
+      
+      // If this was the last attempt and error has response, format and return
+      if (error.response) {
+        return {
+          error: true,
+          status: error.response.status,
+          message: error.response.data?.message || error.message,
+          data: error.response.data,
+          attempts: errors.map(e => ({
+            baseUrl: e.baseUrl,
+            status: e.error.response?.status || e.error.code || 'UNKNOWN',
+            message: e.error.response?.data?.message || e.error.message
+          }))
+        };
+      }
+      
+      // Network errors or connection issues
+      if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || error.message.includes('localhost')) {
+        console.error(`⚠️ WARNING: API call to ${fullUrl} failed. Check SERVER_URL configuration!`);
+        return {
+          error: true,
+          status: 500,
+          message: `Không thể kết nối đến server. Vui lòng kiểm tra cấu hình SERVER_URL. (Attempted: ${fullUrl})`,
+          data: null,
+          attempts: errors.map(e => ({
+            baseUrl: e.baseUrl,
+            status: e.error.response?.status || e.error.code || 'UNKNOWN',
+            message: e.error.response?.data?.message || e.error.message
+          }))
+        };
+      }
+      
+      throw error;
     }
-    
-    console.log(`✅ API response status: ${response.status}`);
-    return response.data;
-  } catch (error) {
-    console.error(`❌ API call failed:`, error.message);
-    console.error(`❌ Full error:`, error);
-    console.error(`❌ Request URL was: ${fullUrl}`);
-    console.error(`❌ SERVER_URL config: ${baseUrl}`);
-    
-    if (error.response) {
-      // Return error response from API
-      return {
-        error: true,
-        status: error.response.status,
-        message: error.response.data?.message || error.message,
-        data: error.response.data
-      };
-    }
-    
-    // Network errors or connection issues
-    if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || error.message.includes('localhost')) {
-      console.error(`⚠️ WARNING: API call to ${fullUrl} failed. Check SERVER_URL configuration!`);
-      return {
-        error: true,
-        status: 500,
-        message: `Không thể kết nối đến server. Vui lòng kiểm tra cấu hình SERVER_URL. (Attempted: ${fullUrl})`,
-        data: null
-      };
-    }
-    
-    throw error;
+  }
+  
+  // Fallback in case no baseUrl could be used successfully
+  if (errors.length > 0) {
+    return {
+      error: true,
+      status: errors[errors.length - 1].error.response?.status || errors[errors.length - 1].error.code || 500,
+      message: errors.map(e => `${e.baseUrl}: ${e.error.response?.data?.message || e.error.message}`).join(' | '),
+      attempts: errors.map(e => ({
+        baseUrl: e.baseUrl,
+        status: e.error.response?.status || e.error.code || 'UNKNOWN',
+        message: e.error.response?.data?.message || e.error.message
+      }))
+    };
   }
 }
 
