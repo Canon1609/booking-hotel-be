@@ -36,13 +36,38 @@ app.use(responseMiddleware); // Ensure statusCode is present in all JSON respons
 app.set('trust proxy', 1);
 
 // CORS (đặt trước rate-limit để preflight không bị chặn)
+const additionalOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
+
+const allowedOrigins = [...new Set([
+  process.env.CLIENT_URL,
+  process.env.FRONTEND_URL,
+  'https://beanhotelvn.id.vn',
+  'https://www.beanhotelvn.id.vn',
+  'http://localhost:3000',
+  ...additionalOrigins
+])].filter(Boolean);
+
 const corsOptions = {
-  origin: [process.env.CLIENT_URL, process.env.FRONTEND_URL, 'http://localhost:3000'],
+  origin(origin, callback) {
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error('Origin not allowed by CORS'));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
   optionsSuccessStatus: 204
 };
+
 app.use(cors(corsOptions));
 
 // Rate limiter disabled (entirely removed per request)
