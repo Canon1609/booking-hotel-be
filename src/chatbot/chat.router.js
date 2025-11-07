@@ -89,7 +89,13 @@ async function executeApiTool(functionCall, authToken = null) {
   
   // Check if function requires auth but no token provided
   if (functionMapUser[name] && !authToken) {
-    throw new Error(`Function ${name} requires authentication. Please login first.`);
+    // Return error response instead of throwing, so Gemini can handle it gracefully
+    return {
+      error: true,
+      status: 401,
+      message: 'Bạn cần đăng nhập để sử dụng chức năng này. Vui lòng đăng nhập trước.',
+      requiresAuth: true
+    };
   }
   
   const { method, path, operation } = funcDef;
@@ -259,9 +265,11 @@ function getToolsForUser(hasAuth) {
       functionDeclarations: [...geminiFunctionsPublic, ...geminiFunctionsUser]
     }];
   }
-  // Return only public tools
+
+  // For unauthenticated users, still expose authenticated tools so the AI knows they exist
+  // The actual API call will enforce authentication inside executeApiTool
   return [{
-    functionDeclarations: geminiFunctionsPublic
+    functionDeclarations: [...geminiFunctionsPublic, ...geminiFunctionsUser]
   }];
 }
 
@@ -683,8 +691,10 @@ router.post('/chat', async (req, res) => {
    - BẮT BUỘC phải sử dụng các function tools có sẵn để lấy dữ liệu chính xác từ hệ thống
    - KHÔNG được chỉ hỏi lại người dùng mà không gọi function
    - Ví dụ: Khi người dùng nói "tôi cần phòng vào ngày 20/11", bạn PHẢI gọi function getRoomsAvailability với check_in và check_out tương ứng
+   - Ví dụ: Khi người dùng nói "tra cứu mã đặt phòng ABC123", bạn PHẢI gọi function tương ứng để tra cứu
    - Sau khi có kết quả từ function, hãy trình bày thông tin một cách chi tiết, rõ ràng và thân thiện bằng tiếng Việt
-   - Nếu function trả về lỗi, hãy thông báo lỗi và đề xuất giải pháp
+   - Nếu function trả về lỗi với message "Bạn cần đăng nhập", hãy thông báo cho người dùng: "Để tra cứu thông tin đặt phòng, bạn cần đăng nhập trước. Sau khi đăng nhập, tôi sẽ có thể truy cập thông tin chi tiết về đặt phòng của bạn. Bạn muốn đăng nhập ngay bây giờ không?"
+   - Nếu function trả về lỗi khác, hãy thông báo lỗi và đề xuất giải pháp
 
 2. **Khi là câu hỏi chung, không cần dữ liệu từ hệ thống** (như hỏi về du lịch, ăn uống, địa điểm, lời khuyên):
    - Trả lời trực tiếp bằng kiến thức của bạn
@@ -702,7 +712,8 @@ router.post('/chat', async (req, res) => {
 5. **Nguyên tắc hoạt động:**
    - Ưu tiên gọi function để lấy dữ liệu thực tế từ hệ thống
    - Chỉ hỏi lại người dùng khi thực sự thiếu thông tin bắt buộc (như số lượng khách, loại phòng cụ thể)
-   - Khi đã có đủ thông tin từ câu hỏi của người dùng, hãy gọi function ngay lập tức`;
+   - Khi đã có đủ thông tin từ câu hỏi của người dùng, hãy gọi function ngay lập tức
+   - Khi function yêu cầu authentication, hãy giải thích rõ ràng cho người dùng biết họ cần đăng nhập`;
 
     // Get tools based on authentication status
     const tools = getToolsForUser(isAuthenticated);
@@ -785,12 +796,22 @@ router.post('/chat', async (req, res) => {
           });
         } catch (error) {
           console.error(`❌ Error calling function ${name}:`, error);
+          // Format error message for better user experience
+          let errorMessage = error.message || 'Không thể thực hiện yêu cầu';
+          if (error.message && error.message.includes('authentication')) {
+            errorMessage = 'Bạn cần đăng nhập để sử dụng chức năng này. Vui lòng đăng nhập trước.';
+          } else if (error.message && error.message.includes('ECONNREFUSED')) {
+            errorMessage = 'Không thể kết nối đến server. Vui lòng thử lại sau.';
+          }
+          
           functionResults.push({
             functionResponse: {
               name: name,
               response: { 
                 error: true,
-                message: error.message || 'Function execution failed'
+                status: error.status || 500,
+                message: errorMessage,
+                requiresAuth: error.message && error.message.includes('authentication')
               }
             }
           });
@@ -848,7 +869,12 @@ router.post('/chat', async (req, res) => {
             finalText = `Đã thực hiện yêu cầu của bạn. Kết quả: ${JSON.stringify(firstResult, null, 2)}`;
           }
         } else if (firstResult?.error) {
-          finalText = `Xin lỗi, có lỗi xảy ra khi tìm kiếm: ${firstResult.message || 'Không thể thực hiện yêu cầu'}. Vui lòng thử lại hoặc cung cấp thêm thông tin.`;
+          // Handle authentication errors specifically
+          if (firstResult.requiresAuth || firstResult.message?.includes('đăng nhập')) {
+            finalText = `Để tra cứu thông tin đặt phòng, bạn cần đăng nhập trước. Sau khi đăng nhập, tôi sẽ có thể truy cập thông tin chi tiết về đặt phòng của bạn. Bạn muốn đăng nhập ngay bây giờ không?`;
+          } else {
+            finalText = `Xin lỗi, có lỗi xảy ra khi tìm kiếm: ${firstResult.message || 'Không thể thực hiện yêu cầu'}. Vui lòng thử lại hoặc cung cấp thêm thông tin.`;
+          }
         } else {
           finalText = 'Đã xử lý yêu cầu của bạn.';
         }
