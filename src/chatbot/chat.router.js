@@ -15,6 +15,7 @@ const MODEL_NAME = process.env.GEMINI_MODEL_NAME || 'gemini-2.0-flash-exp';
 const model = genAI.getGenerativeModel({ model: MODEL_NAME });
 
 console.log(`✅ Gemini model configured: ${MODEL_NAME}`);
+console.log(`🌐 SERVER_URL for chatbot API calls: ${SERVER_URL || 'http://localhost:5000'}`);
 
 /**
  * Generate OpenAPI spec and convert to Gemini functions
@@ -93,6 +94,9 @@ async function executeApiTool(functionCall, authToken = null) {
   
   const { method, path, operation } = funcDef;
   const baseUrl = SERVER_URL || 'http://localhost:5000';
+  
+  // Log SERVER_URL for debugging
+  console.log(`🌐 Using SERVER_URL: ${baseUrl}`);
   
   // Validate and fix date parameters (check_in, check_out)
   if (args) {
@@ -216,6 +220,10 @@ async function executeApiTool(functionCall, authToken = null) {
     return response.data;
   } catch (error) {
     console.error(`❌ API call failed:`, error.message);
+    console.error(`❌ Full error:`, error);
+    console.error(`❌ Request URL was: ${fullUrl}`);
+    console.error(`❌ SERVER_URL config: ${baseUrl}`);
+    
     if (error.response) {
       // Return error response from API
       return {
@@ -225,6 +233,18 @@ async function executeApiTool(functionCall, authToken = null) {
         data: error.response.data
       };
     }
+    
+    // Network errors or connection issues
+    if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || error.message.includes('localhost')) {
+      console.error(`⚠️ WARNING: API call to ${fullUrl} failed. Check SERVER_URL configuration!`);
+      return {
+        error: true,
+        status: 500,
+        message: `Không thể kết nối đến server. Vui lòng kiểm tra cấu hình SERVER_URL. (Attempted: ${fullUrl})`,
+        data: null
+      };
+    }
+    
     throw error;
   }
 }
@@ -659,9 +679,12 @@ router.post('/chat', async (req, res) => {
     // System instruction for Gemini
     const systemInstruction = `Bạn là trợ lý AI thông minh cho hệ thống đặt phòng khách sạn. Nhiệm vụ của bạn:
 
-1. **Khi cần thông tin cụ thể từ hệ thống** (như tìm phòng, tra cứu booking, thông tin khách sạn):
-   - Sử dụng các function tools có sẵn để lấy dữ liệu chính xác
-   - Sau khi có kết quả, trả lời một cách thân thiện và dễ hiểu bằng tiếng Việt
+1. **QUAN TRỌNG - Khi người dùng yêu cầu tìm phòng, tra cứu thông tin, hoặc đặt phòng:**
+   - BẮT BUỘC phải sử dụng các function tools có sẵn để lấy dữ liệu chính xác từ hệ thống
+   - KHÔNG được chỉ hỏi lại người dùng mà không gọi function
+   - Ví dụ: Khi người dùng nói "tôi cần phòng vào ngày 20/11", bạn PHẢI gọi function getRoomsAvailability với check_in và check_out tương ứng
+   - Sau khi có kết quả từ function, hãy trình bày thông tin một cách chi tiết, rõ ràng và thân thiện bằng tiếng Việt
+   - Nếu function trả về lỗi, hãy thông báo lỗi và đề xuất giải pháp
 
 2. **Khi là câu hỏi chung, không cần dữ liệu từ hệ thống** (như hỏi về du lịch, ăn uống, địa điểm, lời khuyên):
    - Trả lời trực tiếp bằng kiến thức của bạn
@@ -670,7 +693,16 @@ router.post('/chat', async (req, res) => {
 
 3. **Luôn trả lời bằng tiếng Việt**, trừ khi người dùng yêu cầu ngôn ngữ khác.
 
-4. **Khi người dùng nói "tới đây" hoặc chỉ nói ngày/tháng**, hãy hiểu là năm hiện tại (${new Date().getFullYear()}). Nếu ngày đã qua trong năm, dùng năm tiếp theo.`;
+4. **Xử lý ngày tháng:**
+   - Khi người dùng nói "tới đây" hoặc chỉ nói ngày/tháng (ví dụ: "20/11"), hãy hiểu là năm hiện tại (${new Date().getFullYear()})
+   - Nếu ngày đã qua trong năm hiện tại, tự động dùng năm tiếp theo
+   - Ví dụ: Hôm nay là tháng 12/${new Date().getFullYear()}, "20/11 tới đây" = ${new Date().getFullYear() + 1}-11-20
+   - Luôn đảm bảo check_out sau check_in ít nhất 1 ngày
+
+5. **Nguyên tắc hoạt động:**
+   - Ưu tiên gọi function để lấy dữ liệu thực tế từ hệ thống
+   - Chỉ hỏi lại người dùng khi thực sự thiếu thông tin bắt buộc (như số lượng khách, loại phòng cụ thể)
+   - Khi đã có đủ thông tin từ câu hỏi của người dùng, hãy gọi function ngay lập tức`;
 
     // Get tools based on authentication status
     const tools = getToolsForUser(isAuthenticated);
@@ -798,9 +830,25 @@ router.post('/chat', async (req, res) => {
         console.warn(`⚠️ Response is empty, providing fallback message`);
         const firstResult = functionResults[0]?.functionResponse?.response;
         if (firstResult && typeof firstResult === 'object' && !firstResult.error) {
-          finalText = `Đã thực hiện yêu cầu của bạn. Kết quả: ${JSON.stringify(firstResult, null, 2)}`;
+          // If we have successful results, format them nicely
+          if (firstResult.rooms && Array.isArray(firstResult.rooms)) {
+            const roomCount = firstResult.rooms.length;
+            const roomsInfo = firstResult.rooms.map(room => {
+              let priceText = 'Liên hệ';
+              if (room.prices?.[0]?.price_per_night) {
+                const price = parseFloat(room.prices[0].price_per_night);
+                priceText = new Intl.NumberFormat('vi-VN').format(price) + ' VNĐ/đêm';
+              }
+              return `- Phòng ${room.room_num} (${room.room_type}): ${priceText} - ${room.hotel_name || room.name || 'Khách sạn'}`;
+            }).join('\n');
+            finalText = `Tôi đã tìm thấy ${roomCount} phòng phù hợp:\n\n${roomsInfo}\n\nBạn có muốn đặt phòng nào không?`;
+          } else if (firstResult.data && Array.isArray(firstResult.data)) {
+            finalText = `Tôi đã tìm thấy ${firstResult.data.length} kết quả. ${JSON.stringify(firstResult.data.slice(0, 3), null, 2)}`;
+          } else {
+            finalText = `Đã thực hiện yêu cầu của bạn. Kết quả: ${JSON.stringify(firstResult, null, 2)}`;
+          }
         } else if (firstResult?.error) {
-          finalText = `Xin lỗi, có lỗi xảy ra: ${firstResult.message || 'Không thể thực hiện yêu cầu'}`;
+          finalText = `Xin lỗi, có lỗi xảy ra khi tìm kiếm: ${firstResult.message || 'Không thể thực hiện yêu cầu'}. Vui lòng thử lại hoặc cung cấp thêm thông tin.`;
         } else {
           finalText = 'Đã xử lý yêu cầu của bạn.';
         }
