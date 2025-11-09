@@ -1956,8 +1956,9 @@ exports.refundBookingAdmin = async (req, res) => {
     const isWithin12h = hoursSinceBooking <= 12;
 
     let penaltyRate;
-    if (isWithin48h) penaltyRate = 1; // mất 100%
-    else if (isWithin12h) penaltyRate = 0.15; // phạt 15%
+    // Ưu tiên kiểm tra thời gian từ lúc đặt (12h) trước, sau đó mới kiểm tra thời gian đến check-in (48h)
+    if (isWithin12h) penaltyRate = 0.15; // phạt 15% (hoàn 85%) - ưu tiên cao nhất
+    else if (isWithin48h) penaltyRate = 1; // mất 100%
     else penaltyRate = 0.3; // phạt 30%
 
     const totalPrice = parseFloat(booking.total_price) || 0;
@@ -1967,7 +1968,52 @@ exports.refundBookingAdmin = async (req, res) => {
     const totalPaid = (await Payment.sum('amount', { where: { booking_id: booking.booking_id, status: 'completed', amount: { [Op.gt]: 0 } } })) || 0;
     const totalRefundedAbs = Math.abs((await Payment.sum('amount', { where: { booking_id: booking.booking_id, status: 'completed', amount: { [Op.lt]: 0 } } })) || 0);
 
-    const refundableCap = Math.max(0, Math.min(maxPolicyRefund, totalPaid) - totalRefundedAbs);
+    // Kiểm tra xem có payment pending không (nếu có thì sẽ được cập nhật, không tạo mới)
+    const pendingRefund = await Payment.findOne({
+      where: {
+        booking_id: booking.booking_id,
+        amount: { [Op.lt]: 0 },
+        status: 'pending'
+      }
+    });
+
+    // Nếu có pending refund, thì refundableCap = maxPolicyRefund - (totalRefundedAbs - số tiền pending)
+    // Vì pending chưa được tính vào totalRefundedAbs, nhưng khi cập nhật sẽ được tính
+    const pendingRefundAbs = pendingRefund ? Math.abs(Number(pendingRefund.amount)) : 0;
+    
+    // Tính refundableCap: số tiền còn có thể refund
+    // Nếu đang cập nhật pending refund, thì không trừ số tiền pending đó
+    let refundableCap = Math.max(0, Math.min(maxPolicyRefund, totalPaid) - totalRefundedAbs + pendingRefundAbs);
+    
+    // Nếu admin đang refund lại số tiền đã refund trước đó (cùng số tiền), cho phép
+    // Vì có thể là refund lại hoặc cập nhật refund hiện có
+    if (pendingRefund && Math.abs(Number(amount)) === pendingRefundAbs) {
+      // Đang cập nhật pending refund với cùng số tiền, cho phép
+      refundableCap = Math.max(refundableCap, Math.abs(Number(amount)));
+    } else if (!pendingRefund && Math.abs(Number(amount)) === totalRefundedAbs && totalRefundedAbs > 0) {
+      // Nếu không có pending nhưng số tiền refund bằng với số đã refund, có thể là refund lại
+      // Kiểm tra xem số tiền này có đúng với chính sách 12h không (85% của totalPrice)
+      const expected12hRefund = totalPrice * 0.85;
+      if (Math.abs(Math.abs(Number(amount)) - expected12hRefund) < 1) {
+        // Số tiền đúng với chính sách 12h, cho phép refund lại
+        refundableCap = Math.max(refundableCap, Math.abs(Number(amount)));
+      }
+    }
+
+    // Debug log để kiểm tra
+    console.log('Refund Admin Debug:', {
+      hoursSinceBooking,
+      hoursUntilCheckIn,
+      isWithin12h,
+      isWithin48h,
+      penaltyRate,
+      totalPrice,
+      maxPolicyRefund,
+      totalPaid,
+      totalRefundedAbs,
+      refundableCap,
+      requestedAmount: Number(amount)
+    });
 
     if (!amount || Number(amount) <= 0) {
       return res.status(400).json({ message: 'Vui lòng cung cấp số tiền hoàn hợp lệ' });
@@ -1976,7 +2022,15 @@ exports.refundBookingAdmin = async (req, res) => {
       return res.status(400).json({ 
         message: 'Số tiền hoàn vượt quá mức cho phép theo chính sách',
         allowed_max_refund: refundableCap,
-        policy: isWithin48h ? 'Trong 48h trước check-in - không hoàn' : (isWithin12h ? 'Trong 12h từ lúc đặt - hoàn tối đa 85%' : 'Trước 48h và >12h từ lúc đặt - hoàn tối đa 70%')
+        policy: isWithin48h ? 'Trong 48h trước check-in - không hoàn' : (isWithin12h ? 'Trong 12h từ lúc đặt - hoàn tối đa 85%' : 'Trước 48h và >12h từ lúc đặt - hoàn tối đa 70%'),
+        debug: {
+          hoursSinceBooking,
+          hoursUntilCheckIn,
+          penaltyRate,
+          maxPolicyRefund,
+          totalPaid,
+          totalRefundedAbs
+        }
       });
     }
 
@@ -1986,7 +2040,8 @@ exports.refundBookingAdmin = async (req, res) => {
         booking_id: booking.booking_id,
         amount: { [Op.lt]: 0 },
         status: 'pending'
-      }
+      },
+      order: [['created_at', 'DESC']]
     });
 
     let refundAmountAbs;
