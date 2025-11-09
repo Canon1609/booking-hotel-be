@@ -1747,27 +1747,27 @@ exports.cancelBooking = async (req, res) => {
     const createdAt = moment(booking.created_at).tz('Asia/Ho_Chi_Minh');
     const hoursSinceBooking = now.diff(createdAt, 'hours');
     const hoursUntilCheckIn = checkInDateTime.diff(now, 'hours');
-    const isWithin12h = hoursSinceBooking <= 12;
+    const isWithin1h = hoursSinceBooking <= 1;
     const isWithin48h = hoursUntilCheckIn <= 48;
 
     let refundAmount = 0;
     let cancellationPolicy = '';
     let penaltyRate = 1; // Tỷ lệ giữ lại (default mất 100%)
 
-    // Ưu tiên 48h trước check-in: nếu còn dưới 48h thì mất 100%
-    if (isWithin48h) {
+    // Ngoại lệ 1 tiếng (ưu tiên cao nhất): Nếu hủy trong vòng ≤ 1 tiếng từ lúc đặt → luôn chỉ mất 15% (bất kể còn bao nhiêu giờ trước check-in)
+    if (isWithin1h) {
+      penaltyRate = 0.15;
+      refundAmount = parseFloat(booking.total_price) * (1 - penaltyRate);
+      cancellationPolicy = 'Hủy trong 1 tiếng kể từ lúc đặt: hoàn 85%, phí 15%';
+      booking.payment_status = 'partial_refunded';
+    } else if (isWithin48h) {
+      // Nếu không phải ngoại lệ 1 tiếng, thì xét 48h trước check-in: nếu còn dưới 48h thì mất 100%
       penaltyRate = 1;
       refundAmount = 0;
       cancellationPolicy = 'Hủy trong vòng 48 giờ - mất 100%';
       booking.payment_status = 'paid';
-    } else if (isWithin12h) {
-      // >48h trước check-in và hủy trong 12h từ lúc đặt => phạt 15%
-      penaltyRate = 0.15;
-      refundAmount = parseFloat(booking.total_price) * (1 - penaltyRate);
-      cancellationPolicy = 'Hủy trong 12 tiếng kể từ lúc đặt: hoàn 85%, phí 15%';
-      booking.payment_status = 'partial_refunded';
     } else {
-      // >48h trước check-in và đã qua 12h => phạt 30%
+      // Còn ≥ 48h trước check-in => phí 30% (hoàn 70%)
       penaltyRate = 0.3;
       refundAmount = parseFloat(booking.total_price) * (1 - penaltyRate);
       cancellationPolicy = 'Hủy trước 48 giờ - hoàn 70%, phí 30%';

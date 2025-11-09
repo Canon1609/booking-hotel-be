@@ -6,13 +6,19 @@ Chức năng hủy đặt phòng cho phép khách hàng và admin hủy booking 
 
 ## 🎯 Chính sách hủy phòng (ưu tiên theo thứ tự)
 
+**Ngoại lệ 1 tiếng (ưu tiên cao nhất):**
+- Nếu hủy trong vòng **≤ 1 tiếng** từ lúc đặt → luôn chỉ **mất 15%** (hoàn 85%)
+- Áp dụng **bất kể còn bao nhiêu giờ trước check-in**
+- **payment_status:** `partial_refunded`
+
+**Nếu không phải ngoại lệ 1 tiếng:**
+
 1) Nếu thời gian tới giờ check-in (14:00 ngày check-in) còn < 48 giờ
 - **Hoàn tiền: 0%** (mất 100%)
 - **payment_status:** giữ nguyên `paid`
 
-2) Nếu còn ≥ 48 giờ mới tới giờ check-in, xét tiếp mốc thời gian từ lúc đặt tới lúc hủy:
-- Nếu hủy trong vòng **≤ 12 giờ** kể từ lúc đặt: **phí 15%**, **hoàn 85%** (payment_status: `partial_refunded`)
-- Nếu hủy **> 12 giờ** kể từ lúc đặt: **phí 30%**, **hoàn 70%** (payment_status: `partial_refunded`)
+2) Nếu còn ≥ 48 giờ mới tới giờ check-in
+- **Phí 30%**, **hoàn 70%** (payment_status: `partial_refunded`)
 
 ## 🔄 Chức năng đổi phòng (Modification)
 
@@ -45,7 +51,17 @@ Authorization: Bearer <token>
 }
 ```
 
-**Response (Hủy trước 48h):**
+**Response (Ngoại lệ 1 tiếng):**
+```json
+{
+  "message": "Hủy booking thành công",
+  "refund_amount": 850000,
+  "cancellation_policy": "Hủy trong 1 tiếng kể từ lúc đặt: hoàn 85%, phí 15%",
+  "hours_until_checkin": 24
+}
+```
+
+**Response (Hủy trước 48h - không phải ngoại lệ 1 tiếng):**
 ```json
 {
   "message": "Hủy booking thành công",
@@ -55,7 +71,7 @@ Authorization: Bearer <token>
 }
 ```
 
-**Response (Hủy trong 48h):**
+**Response (Hủy trong 48h - không phải ngoại lệ 1 tiếng):**
 ```json
 {
   "message": "Hủy booking thành công",
@@ -148,8 +164,8 @@ const checkInDateTime = moment(booking.check_in_date).tz('Asia/Ho_Chi_Minh').set
 });
 const hoursUntilCheckIn = checkInDateTime.diff(now, 'hours');
 const hoursSinceBooking = now.diff(moment(booking.created_at).tz('Asia/Ho_Chi_Minh'), 'hours');
+const isWithin1h = hoursSinceBooking <= 1;     // <= 1h: ngoại lệ, mất 15%
 const isWithin48h = hoursUntilCheckIn <= 48;   // < 48h: mất 100%
-const isWithin12h = hoursSinceBooking <= 12;   // <=12h kể từ lúc đặt: phạt 15%
 ```
 
 ### Tạo payment record cho hoàn tiền
@@ -291,7 +307,90 @@ Content-Type: application/json
   - `payment_status` cập nhật thành `refunded`
   - Email xác nhận hoàn tiền được gửi
 
-### Test Case 1: User hủy trước 48h và >12h từ lúc đặt - Hoàn 70%
+### Test Case 1: User hủy trong 1 tiếng (Ngoại lệ) - Hoàn 85%
+
+**Bước 1: Đăng nhập và tạo booking**
+```bash
+# Đăng nhập user
+POST http://localhost:5000/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "customer@example.com",
+  "password": "password123"
+}
+```
+
+```bash
+# Giữ chỗ tạm thời
+POST http://localhost:5000/api/bookings/temp-booking
+Authorization: Bearer YOUR_TOKEN
+
+{
+  "room_type_id": 1,
+  "check_in_date": "2025-01-22",  // Hôm nay hoặc ngày mai
+  "check_out_date": "2025-01-24",
+  "num_person": 2
+}
+```
+
+**Bước 2: Thanh toán**
+```bash
+# Tạo link thanh toán PayOS
+POST http://localhost:5000/api/bookings/create-payment-link
+Authorization: Bearer YOUR_TOKEN
+
+{
+  "temp_booking_key": "temp_key_from_previous_response"
+}
+
+# Mô phỏng thanh toán qua webhook
+POST http://localhost:5000/api/bookings/payment-webhook
+Content-Type: application/json
+
+{
+  "orderCode": "order_code_from_payment",
+  "status": "PAID"
+}
+```
+
+**Bước 3: Hủy booking ngay trong 1 tiếng**
+```bash
+POST http://localhost:5000/api/bookings/1/cancel
+Authorization: Bearer YOUR_TOKEN
+Content-Type: application/json
+
+{
+  "reason": "Đổi ý"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Hủy booking thành công",
+  "refund_amount": 850000,
+  "cancellation_policy": "Hủy trong 1 tiếng kể từ lúc đặt: hoàn 85%, phí 15%",
+  "hours_until_checkin": 24
+}
+```
+
+**Bước 4: Kiểm tra database**
+```sql
+-- Kiểm tra booking status
+SELECT booking_id, booking_status, payment_status, total_price 
+FROM bookings 
+WHERE booking_id = 1;
+-- Result: booking_status = 'cancelled', payment_status = 'partial_refunded'
+
+-- Kiểm tra payment record (hoàn tiền)
+SELECT * FROM payments WHERE booking_id = 1 AND amount < 0;
+-- Result: amount = -850000 (85% hoàn lại)
+```
+
+---
+
+### Test Case 2: User hủy trước 48h (không phải ngoại lệ 1 tiếng) - Hoàn 70%
 
 **Bước 1: Đăng nhập và tạo booking**
 ```bash
@@ -343,9 +442,10 @@ Content-Type: application/json
 }
 ```
 
-**Bước 3: Hủy booking (trước 48h)**
+**Bước 3: Đợi hơn 1 tiếng rồi hủy booking (trước 48h, không phải ngoại lệ)**
 ```bash
-POST http://localhost:5000/api/bookings/1/cancel
+# Lưu ý: Đợi hơn 1 tiếng từ lúc đặt để không rơi vào ngoại lệ
+POST http://localhost:5000/api/bookings/2/cancel
 Authorization: Bearer YOUR_TOKEN
 Content-Type: application/json
 
@@ -358,7 +458,7 @@ Content-Type: application/json
 ```json
 {
   "message": "Hủy booking thành công",
-  "refund_amount": 840000,
+  "refund_amount": 700000,
   "cancellation_policy": "Hủy trước 48 giờ - hoàn 70%, phí 30%",
   "hours_until_checkin": 72
 }
@@ -369,17 +469,17 @@ Content-Type: application/json
 -- Kiểm tra booking status
 SELECT booking_id, booking_status, payment_status, total_price 
 FROM bookings 
-WHERE booking_id = 1;
+WHERE booking_id = 2;
 -- Result: booking_status = 'cancelled', payment_status = 'partial_refunded'
 
 -- Kiểm tra payment record (hoàn tiền)
-SELECT * FROM payments WHERE booking_id = 1 AND amount < 0;
--- Result: amount = -840000 (70% hoàn lại)
+SELECT * FROM payments WHERE booking_id = 2 AND amount < 0;
+-- Result: amount = -700000 (70% hoàn lại)
 ```
 
 ---
 
-### Test Case 2: User hủy trong 48h - Mất 100%
+### Test Case 3: User hủy trong 48h (không phải ngoại lệ 1 tiếng) - Mất 100%
 
 **Bước 1: Tạo booking với check_in = 1 ngày nữa (24h)**
 ```bash
@@ -574,18 +674,25 @@ User hủy booking
 │  ├─ 'checked_in' → Lỗi: Không thể hủy
 │  ├─ 'checked_out' → Lỗi: Không thể hủy
 │  └─ Khác → Tiếp tục
-├─ Tính thời gian còn lại (48h?)
+├─ Tính thời gian từ lúc đặt đến lúc hủy
 │  └─ Check-in time: 14:00 ngày check_in_date
-├─ Trước 48h?
-│  ├─ YES: 
-│  │  ├─ Hoàn 70% tổng giá
-│  │  ├─ Tạo payment record (amount = -70%)
+├─ Ngoại lệ 1 tiếng?
+│  ├─ YES (hủy ≤ 1h từ lúc đặt):
+│  │  ├─ Hoàn 85% tổng giá (mất 15%)
+│  │  ├─ Tạo payment record (amount = -85%)
 │  │  ├─ Cập nhật payment_status = 'partial_refunded'
 │  │  └─ Giải phóng phòng
-│  └─ NO: 
-│     ├─ Không hoàn tiền
-│     ├─ payment_status = 'paid' (giữ nguyên)
-│     └─ Giải phóng phòng
+│  └─ NO:
+│     ├─ Trước 48h?
+│     │  ├─ YES: 
+│     │  │  ├─ Hoàn 70% tổng giá (mất 30%)
+│     │  │  ├─ Tạo payment record (amount = -70%)
+│     │  │  ├─ Cập nhật payment_status = 'partial_refunded'
+│     │  │  └─ Giải phóng phòng
+│     │  └─ NO: 
+│     │     ├─ Không hoàn tiền (mất 100%)
+│     │     ├─ payment_status = 'paid' (giữ nguyên)
+│     │     └─ Giải phóng phòng
 ├─ Cập nhật booking_status = 'cancelled'
 ├─ Ghi chú lý do hủy vào note
 └─ Trả về kết quả
@@ -606,10 +713,11 @@ Admin hủy booking
 ## ⚠️ Lưu ý
 
 1. **Check-in time mặc định:** 14:00 (2:00 PM)
-2. **Trước 48h:** Từ hơn 48 giờ trước 14:00 ngày check-in
-3. **Trong 48h:** Từ 48 giờ trước 14:00 ngày check-in trở đi
-4. **Không đến (no-show):** Tự động áp dụng chính sách "trong 48h" - mất 100%
-5. **Admin hủy:** Luôn không hoàn tiền tự động, cần xử lý thủ công
+2. **Ngoại lệ 1 tiếng:** Nếu hủy trong vòng ≤ 1 tiếng từ lúc đặt, luôn chỉ mất 15% (hoàn 85%), bất kể còn bao nhiêu giờ trước check-in
+3. **Trước 48h:** Từ hơn 48 giờ trước 14:00 ngày check-in (không phải ngoại lệ 1 tiếng)
+4. **Trong 48h:** Từ 48 giờ trước 14:00 ngày check-in trở đi (không phải ngoại lệ 1 tiếng)
+5. **Không đến (no-show):** Tự động áp dụng chính sách "trong 48h" - mất 100%
+6. **Admin hủy:** Luôn không hoàn tiền tự động, cần xử lý thủ công
 
 ## 🔗 Related Files
 
@@ -659,19 +767,30 @@ Authorization: Bearer YOUR_TOKEN
 
 ## 🎯 Business Logic Examples
 
-### Ví dụ thực tế 1: Khách hủy trước 48h
+### Ví dụ thực tế 1: Khách hủy trong 1 tiếng (Ngoại lệ)
+- **Ngày đặt:** 27/01/2025 lúc 10:00
+- **Ngày hủy:** 27/01/2025 lúc 10:30 (30 phút sau)
+- **Ngày check-in:** 28/01/2025 lúc 14:00
+- **Thời gian từ lúc đặt:** 30 phút (≤ 1 tiếng) ✅
+- **Kết quả:** Hoàn 85%, phí 15% (ngoại lệ áp dụng bất kể còn bao nhiêu giờ trước check-in)
+
+### Ví dụ thực tế 2: Khách hủy trước 48h (không phải ngoại lệ)
+- **Ngày đặt:** 25/01/2025 lúc 10:00
+- **Ngày hủy:** 27/01/2025 lúc 10:00 (2 ngày sau, > 1 tiếng)
 - **Ngày check-in:** 29/01/2025 lúc 14:00
-- **Ngày hủy:** 27/01/2025 lúc 10:00
-- **Thời gian:** 28 giờ (trước 48h) ✅
+- **Thời gian từ lúc đặt:** 48 giờ (> 1 tiếng)
+- **Thời gian đến check-in:** 48 giờ (≥ 48h) ✅
 - **Kết quả:** Hoàn 70%, phí 30%
 
-### Ví dụ thực tế 2: Khách hủy trong 48h
+### Ví dụ thực tế 3: Khách hủy trong 48h (không phải ngoại lệ)
+- **Ngày đặt:** 27/01/2025 lúc 10:00
+- **Ngày hủy:** 28/01/2025 lúc 10:00 (1 ngày sau, > 1 tiếng)
 - **Ngày check-in:** 29/01/2025 lúc 14:00
-- **Ngày hủy:** 28/01/2025 lúc 10:00
-- **Thời gian:** 28 giờ (< 48h) ❌
+- **Thời gian từ lúc đặt:** 24 giờ (> 1 tiếng)
+- **Thời gian đến check-in:** 28 giờ (< 48h) ❌
 - **Kết quả:** Mất 100% (0% hoàn)
 
-### Ví dụ thực tế 3: Admin hủy cho khách đổi phòng
+### Ví dụ thực tế 4: Admin hủy cho khách đổi phòng
 - **Khách yêu cầu:** Đổi từ phòng Deluxe sang Suite
 - **Bước 1:** Admin hủy booking cũ (không hoàn tiền tự động)
 - **Bước 2:** Admin hoàn tiền booking cũ thủ công
