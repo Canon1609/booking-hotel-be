@@ -3,7 +3,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const axios = require('axios');
 const moment = require('moment-timezone');
 const { generateOpenAPISpec, convertToGeminiFunctions } = require('./openapi.generator');
-const { SERVER_URL } = require('../config/config');
+const { SERVER_URL, INTERNAL_API_URL } = require('../config/config');
 const { ChatSession, User } = require('../models');
 const { verifyToken } = require('../utils/jwt.util');
 
@@ -16,6 +16,7 @@ const model = genAI.getGenerativeModel({ model: MODEL_NAME });
 
 console.log(`✅ Gemini model configured: ${MODEL_NAME}`);
 console.log(`🌐 SERVER_URL for chatbot API calls: ${SERVER_URL || 'http://localhost:5000'}`);
+console.log(`🔗 INTERNAL_API_URL for chatbot (Docker internal): ${INTERNAL_API_URL || 'not set (will use SERVER_URL)'}`);
 
 /**
  * Generate OpenAPI spec and convert to Gemini functions
@@ -100,11 +101,28 @@ async function executeApiTool(functionCall, authToken = null) {
   }
   
   const { method, path, operation } = funcDef;
-  const configuredServerUrl = SERVER_URL || 'http://localhost:5000';
-  const baseUrls = [...new Set([configuredServerUrl, 'http://localhost:5000'])].filter(Boolean);
   
-  console.log(`🌐 Preferred SERVER_URL: ${configuredServerUrl}`);
-  console.log(`🌐 Base URLs to try: ${baseUrls.join(', ')}`);
+  // Priority: INTERNAL_API_URL (Docker internal) > SERVER_URL > localhost
+  // INTERNAL_API_URL is used for internal Docker network calls (app:5000)
+  // This ensures chatbot can call APIs without going through public URL which may have auth issues
+  const internalApiUrl = INTERNAL_API_URL || null;
+  const configuredServerUrl = SERVER_URL || 'http://localhost:5000';
+  
+  // Build base URLs list with priority: INTERNAL_API_URL first, then SERVER_URL, then localhost
+  const baseUrls = [];
+  if (internalApiUrl) {
+    baseUrls.push(internalApiUrl);
+  }
+  baseUrls.push(configuredServerUrl);
+  if (configuredServerUrl !== 'http://localhost:5000') {
+    baseUrls.push('http://localhost:5000');
+  }
+  // Remove duplicates
+  const uniqueBaseUrls = [...new Set(baseUrls)].filter(Boolean);
+  
+  console.log(`🌐 INTERNAL_API_URL (Docker): ${internalApiUrl || 'not set'}`);
+  console.log(`🌐 SERVER_URL (public): ${configuredServerUrl}`);
+  console.log(`🌐 Base URLs to try (priority order): ${uniqueBaseUrls.join(', ')}`);
   
   // Validate and fix date parameters (check_in, check_out)
   if (args) {
@@ -197,12 +215,12 @@ async function executeApiTool(functionCall, authToken = null) {
   const errors = [];
   let attempt = 0;
   
-  for (const baseUrl of baseUrls) {
+  for (const baseUrl of uniqueBaseUrls) {
     attempt += 1;
     const sanitizedBaseUrl = baseUrl.replace(/\/$/, '');
     const fullUrl = `${sanitizedBaseUrl}${url}`;
     
-    console.log(`🔧 Executing API tool (attempt ${attempt}/${baseUrls.length}): ${method} ${fullUrl}`);
+    console.log(`🔧 Executing API tool (attempt ${attempt}/${uniqueBaseUrls.length}): ${method} ${fullUrl}`);
     console.log(`📤 Args:`, JSON.stringify(args, null, 2));
     console.log(`🔐 Auth:`, authToken ? 'Yes (user authenticated)' : 'No (public)');
     
@@ -241,8 +259,8 @@ async function executeApiTool(functionCall, authToken = null) {
           url: fullUrl,
           error: { message: 'Received HTML instead of JSON (likely wrong SERVER_URL domain)' }
         });
-        if (attempt < baseUrls.length) {
-          console.log(`🔁 Trying next base URL due to HTML response (remaining attempts: ${baseUrls.length - attempt})`);
+        if (attempt < uniqueBaseUrls.length) {
+          console.log(`🔁 Trying next base URL due to HTML response (remaining attempts: ${uniqueBaseUrls.length - attempt})`);
           continue;
         }
         return {
@@ -268,8 +286,8 @@ async function executeApiTool(functionCall, authToken = null) {
       });
       
       // If there are more base URLs to try, continue loop
-      if (attempt < baseUrls.length) {
-        console.log(`🔁 Trying next base URL (remaining attempts: ${baseUrls.length - attempt})`);
+      if (attempt < uniqueBaseUrls.length) {
+        console.log(`🔁 Trying next base URL (remaining attempts: ${uniqueBaseUrls.length - attempt})`);
         continue;
       }
       
