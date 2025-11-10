@@ -1754,10 +1754,13 @@ exports.cancelBooking = async (req, res) => {
     let cancellationPolicy = '';
     let penaltyRate = 1; // Tỷ lệ giữ lại (default mất 100%)
 
+    // Dùng final_price (giá cuối cùng sau promotion, dịch vụ) để tính refund, fallback về total_price nếu không có
+    const finalPrice = parseFloat(booking.final_price || booking.total_price) || 0;
+
     // Ngoại lệ 1 tiếng (ưu tiên cao nhất): Nếu hủy trong vòng ≤ 1 tiếng từ lúc đặt → luôn chỉ mất 15% (bất kể còn bao nhiêu giờ trước check-in)
     if (isWithin1h) {
       penaltyRate = 0.15;
-      refundAmount = parseFloat(booking.total_price) * (1 - penaltyRate);
+      refundAmount = finalPrice * (1 - penaltyRate);
       cancellationPolicy = 'Hủy trong 1 tiếng kể từ lúc đặt: hoàn 85%, phí 15%';
       booking.payment_status = 'partial_refunded';
     } else if (isWithin48h) {
@@ -1769,7 +1772,7 @@ exports.cancelBooking = async (req, res) => {
     } else {
       // Còn ≥ 48h trước check-in => phí 30% (hoàn 70%)
       penaltyRate = 0.3;
-      refundAmount = parseFloat(booking.total_price) * (1 - penaltyRate);
+      refundAmount = finalPrice * (1 - penaltyRate);
       cancellationPolicy = 'Hủy trước 48 giờ - hoàn 70%, phí 30%';
       booking.payment_status = 'partial_refunded';
     }
@@ -1961,8 +1964,9 @@ exports.refundBookingAdmin = async (req, res) => {
     else if (isWithin48h) penaltyRate = 1; // mất 100%
     else penaltyRate = 0.3; // phạt 30%
 
-    const totalPrice = parseFloat(booking.total_price) || 0;
-    const maxPolicyRefund = totalPrice * (1 - penaltyRate);
+    // Dùng final_price (giá cuối cùng sau promotion, dịch vụ) để tính refund, fallback về total_price nếu không có
+    const finalPrice = parseFloat(booking.final_price || booking.total_price) || 0;
+    const maxPolicyRefund = finalPrice * (1 - penaltyRate);
 
     // Tổng đã thanh toán (completed, dương) và đã hoàn (completed, âm)
     const totalPaid = (await Payment.sum('amount', { where: { booking_id: booking.booking_id, status: 'completed', amount: { [Op.gt]: 0 } } })) || 0;
@@ -1992,8 +1996,8 @@ exports.refundBookingAdmin = async (req, res) => {
       refundableCap = Math.max(refundableCap, Math.abs(Number(amount)));
     } else if (!pendingRefund && Math.abs(Number(amount)) === totalRefundedAbs && totalRefundedAbs > 0) {
       // Nếu không có pending nhưng số tiền refund bằng với số đã refund, có thể là refund lại
-      // Kiểm tra xem số tiền này có đúng với chính sách 12h không (85% của totalPrice)
-      const expected12hRefund = totalPrice * 0.85;
+      // Kiểm tra xem số tiền này có đúng với chính sách 12h không (85% của finalPrice)
+      const expected12hRefund = finalPrice * 0.85;
       if (Math.abs(Math.abs(Number(amount)) - expected12hRefund) < 1) {
         // Số tiền đúng với chính sách 12h, cho phép refund lại
         refundableCap = Math.max(refundableCap, Math.abs(Number(amount)));
@@ -2007,7 +2011,8 @@ exports.refundBookingAdmin = async (req, res) => {
       isWithin12h,
       isWithin48h,
       penaltyRate,
-      totalPrice,
+      finalPrice,
+      totalPrice: parseFloat(booking.total_price) || 0,
       maxPolicyRefund,
       totalPaid,
       totalRefundedAbs,
@@ -2027,6 +2032,8 @@ exports.refundBookingAdmin = async (req, res) => {
           hoursSinceBooking,
           hoursUntilCheckIn,
           penaltyRate,
+          finalPrice,
+          totalPrice: parseFloat(booking.total_price) || 0,
           maxPolicyRefund,
           totalPaid,
           totalRefundedAbs
