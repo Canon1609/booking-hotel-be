@@ -15,7 +15,7 @@ Test tính năng giữ chỗ tạm thời (30 phút) để đảm bảo:
 3. Chuẩn bị 2 tài khoản user (User A và User B)
 
 ### Bước 2: User A giữ chỗ
-**API:** `POST /api/bookings/temp`
+**API:** `POST /api/bookings/temp-booking`
 **Headers:** `Authorization: Bearer USER_A_TOKEN`
 **Body:**
 ```json
@@ -46,7 +46,7 @@ Test tính năng giữ chỗ tạm thời (30 phút) để đảm bảo:
 → **Lưu `temp_booking_key`**
 
 ### Bước 3: User B cố gắng đặt cùng loại phòng (NÊN BỊ TỪ CHỐI)
-**API:** `POST /api/bookings/temp`
+**API:** `POST /api/bookings/temp-booking`
 **Headers:** `Authorization: Bearer USER_B_TOKEN`
 **Body:**
 ```json
@@ -70,7 +70,7 @@ Test tính năng giữ chỗ tạm thời (30 phút) để đảm bảo:
 ```
 
 ### Bước 4: User A tạo payment link và thanh toán
-**API:** `POST /api/bookings/payment-link`
+**API:** `POST /api/bookings/create-payment-link`
 **Headers:** `Authorization: Bearer USER_A_TOKEN`
 **Body:**
 ```json
@@ -83,7 +83,7 @@ Test tính năng giữ chỗ tạm thời (30 phút) để đảm bảo:
 → Thanh toán thành công → Webhook được gọi → Booking vĩnh viễn được tạo → Redis temp booking bị xóa
 
 ### Bước 5: User B thử lại (NÊN THÀNH CÔNG hoặc BỊ TỪ CHỐI nếu phòng đã được đặt vĩnh viễn)
-**API:** `POST /api/bookings/temp`
+**API:** `POST /api/bookings/temp-booking`
 **Headers:** `Authorization: Bearer USER_B_TOKEN`
 **Body:** (giống Bước 3)
 
@@ -126,6 +126,26 @@ Test tính năng giữ chỗ tạm thời (30 phút) để đảm bảo:
 }
 ```
 → Còn 1 phòng, đủ để đặt
+
+## Test Case 2.2: Availability giảm ngay trong 30 phút giữ chỗ, và trở lại sau khi hết hạn
+
+1. User A giữ 1 phòng loại X cho ngày `2025-11-20` → `2025-11-21` (API giữ chỗ ở trên)  
+2. Gọi tra cứu:
+   - `GET /api/rooms/availability/search?check_in=2025-11-20&check_out=2025-11-21&room_type_id={X}`
+   - Kỳ vọng: số phòng còn lại của loại X giảm đi đúng số đã giữ (ví dụ từ 5 còn 4). Trường `total` và danh sách `rooms` phản ánh số đã bị trừ.
+3. Không thanh toán, chờ > 30 phút (TTL hết hạn).  
+4. Gọi lại tra cứu cùng tham số:  
+   - Kỳ vọng: số phòng trở lại như ban đầu (ví dụ 5), vì giữ chỗ đã hết hạn trên Redis.
+
+## Test Case 2.1: Hiển thị còn lại khi có giữ chỗ (theo yêu cầu)
+
+- Giả sử loại phòng đơn còn 5 phòng trống trong ngày 2024-11-20 → 2024-11-21
+- Khi có 1 user giữ chỗ 1 phòng (TTL 30 phút) cho đúng khoảng ngày đó
+- Trong lúc đang giữ (chưa hết TTL, chưa thanh toán), các API tra cứu sẽ hiển thị còn lại 4 phòng:
+  - **API tra cứu danh sách phòng/summary:** `GET /api/rooms/availability/search?check_in=2024-11-20&check_out=2024-11-21&room_type_id={id}`
+  - **API xem phòng trống theo loại (lễ tân):** `GET /api/bookings/available-rooms?room_type_id={id}&check_in_date=2024-11-20&check_out_date=2024-11-21`
+
+Kết quả sẽ phản ánh số phòng tạm giữ trong Redis bằng cách trừ trực tiếp vào số phòng còn trống của loại phòng tương ứng trong khoảng ngày trùng lặp.
 
 ## Test Case 3: Test TTL (Time To Live)
 
