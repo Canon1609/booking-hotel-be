@@ -184,28 +184,28 @@ exports.searchAvailability = async (req, res) => {
       baseRoomWhere.room_type_id = room_type_id;
     }
 
-    // Exclude rooms held by temp bookings (Redis) that overlap the requested dates
-    let heldRoomIds = [];
+    // Compute held counts by room_type (Redis temp bookings) overlapping requested dates
+    // We don't assign specific room_ids during hold, so we will trim results by counts per type later
+    let heldCountByType = {};
     try {
       const allTemp = await redisService.getAllTempBookings();
       const holds = Object.values(allTemp || {});
       const checkInDate = checkInTz.clone();
       const checkOutDate = checkOutTz.clone();
-      heldRoomIds = holds
-        .filter(tb => {
-          if (!tb || !tb.room_id || !tb.check_in_date || !tb.check_out_date) return false;
-          const tbIn = moment(tb.check_in_date).tz('Asia/Ho_Chi_Minh');
-          const tbOut = moment(tb.check_out_date).tz('Asia/Ho_Chi_Minh');
-          // overlap if tbIn < check_out AND tbOut > check_in
-          return tbIn.isBefore(checkOutDate, 'day') && tbOut.isAfter(checkInDate, 'day');
-        })
-        .map(tb => tb.room_id);
+      heldCountByType = holds.reduce((acc, tb) => {
+        if (!tb || !tb.room_type_id || !tb.check_in_date || !tb.check_out_date) return acc;
+        const tbIn = moment(tb.check_in_date).tz('Asia/Ho_Chi_Minh');
+        const tbOut = moment(tb.check_out_date).tz('Asia/Ho_Chi_Minh');
+        const isOverlap = tbIn.isBefore(checkOutDate, 'day') && tbOut.isAfter(checkInDate, 'day');
+        if (!isOverlap) return acc;
+        const typeId = Number(tb.room_type_id);
+        const num = Number(tb.num_rooms) || 1;
+        acc[typeId] = (acc[typeId] || 0) + num;
+        return acc;
+      }, {});
     } catch (e) {
-      // continue without excluding if Redis unavailable
-    }
-    if (heldRoomIds.length > 0) {
-      roomWhere.room_id = { [Op.notIn]: heldRoomIds };
-      // NOTE: baseRoomWhere intentionally does NOT exclude held rooms
+      // Redis might be unavailable; proceed without holds
+      heldCountByType = {};
     }
 
     // Current price record that covers the stay start date
@@ -281,9 +281,32 @@ exports.searchAvailability = async (req, res) => {
     });
 
     // Optional guests capacity filter at JS level when capacity stored on RoomType
-    const filteredRows = (guests
+    let filteredRows = (guests
       ? rows.filter(r => (r.room_type && typeof r.room_type.capacity === 'number' ? r.room_type.capacity >= parseInt(guests) : true))
       : rows);
+
+    // Trim rows by held counts per room_type to reflect temporarily unavailable rooms
+    if (filteredRows.length > 0 && Object.keys(heldCountByType).length > 0) {
+      const groupedByType = filteredRows.reduce((acc, room) => {
+        const rt = room.room_type;
+        if (!rt) return acc;
+        const key = Number(rt.room_type_id);
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(room);
+        return acc;
+      }, {});
+
+      const trimmed = [];
+      for (const [typeIdStr, list] of Object.entries(groupedByType)) {
+        const typeId = Number(typeIdStr);
+        const heldCount = heldCountByType[typeId] || 0;
+        const keepCount = Math.max(list.length - heldCount, 0);
+        if (keepCount > 0) {
+          trimmed.push(...list.slice(0, keepCount));
+        }
+      }
+      filteredRows = trimmed;
+    }
 
     // Build availability summary by room type
     const availableCountByType = {};
@@ -349,6 +372,7 @@ exports.searchAvailability = async (req, res) => {
     const summaryByRoomType = Array.from(typeIds).map(id => {
       const roomTypeId = parseInt(id, 10);
       const totalRooms = totalByType[roomTypeId] || 0;
+      // availableCountByType was computed AFTER trimming held rooms, so do not subtract holds again
       const availableRooms = availableCountByType[roomTypeId] || 0;
       const info = roomTypeInfoById[roomTypeId] || { room_type_id: roomTypeId };
       return {
@@ -362,7 +386,7 @@ exports.searchAvailability = async (req, res) => {
     }).sort((a, b) => a.room_type_id - b.room_type_id);
 
     return res.status(200).json({
-      total: Array.isArray(count) ? count.length : count,
+      total: filteredRows.length,
       rooms: filteredRows,
       summary_by_room_type: summaryByRoomType
     });

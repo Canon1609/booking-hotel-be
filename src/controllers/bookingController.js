@@ -1547,6 +1547,9 @@ exports.getAvailableRoomsForType = async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy loại phòng' });
     }
 
+    // Tổng số phòng thực tế của loại này
+    const totalRoomsOfType = await Room.count({ where: { room_type_id } });
+
     // Tìm các phòng đã được đặt trong khoảng thời gian này qua BookingRoom
     // QUAN TRỌNG: Chỉ tính booking nếu check_out_date >= hôm nay (booking chưa kết thúc)
     const today = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD');
@@ -1578,9 +1581,31 @@ exports.getAvailableRoomsForType = async (req, res) => {
       whereClause.room_id = { [Op.notIn]: bookedRoomIds };
     }
 
-    const availableRooms = await Room.findAll({
+    let availableRooms = await Room.findAll({
       where: whereClause
     });
+
+    // Trừ số phòng đang được giữ tạm thời (Redis) theo loại phòng và khoảng ngày
+    try {
+      const allTemp = await redisService.getAllTempBookings();
+      const holds = Object.values(allTemp || {});
+      const heldCount = holds.reduce((sum, tb) => {
+        if (!tb || !tb.room_type_id || Number(tb.room_type_id) !== Number(room_type_id)) return sum;
+        if (!tb.check_in_date || !tb.check_out_date) return sum;
+        const tbIn = moment(tb.check_in_date).tz('Asia/Ho_Chi_Minh');
+        const tbOut = moment(tb.check_out_date).tz('Asia/Ho_Chi_Minh');
+        const isOverlap = tbIn.isBefore(checkOut, 'day') && tbOut.isAfter(checkIn, 'day');
+        if (!isOverlap) return sum;
+        return sum + (Number(tb.num_rooms) || 1);
+      }, 0);
+
+      if (heldCount > 0 && availableRooms.length > 0) {
+        const keepCount = Math.max(availableRooms.length - heldCount, 0);
+        availableRooms = availableRooms.slice(0, keepCount);
+      }
+    } catch (e) {
+      // Redis unavailable → skip holds
+    }
 
     return res.status(200).json({
       message: 'Danh sách phòng trống',
@@ -1589,7 +1614,7 @@ exports.getAvailableRoomsForType = async (req, res) => {
       max_quantity: roomType.quantity,
       check_in_date: checkIn.format('YYYY-MM-DD'),
       check_out_date: checkOut.format('YYYY-MM-DD'),
-      total_rooms: allRooms.length,
+      total_rooms: totalRoomsOfType,
       available_rooms: availableRooms.length,
       rooms: availableRooms.map(room => ({
         room_id: room.room_id,
