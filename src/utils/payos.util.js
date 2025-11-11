@@ -82,16 +82,17 @@ class PayOSService {
   // Xác thực webhook từ PayOS
   async verifyWebhookData(webhookData) {
     try {
-      // Nếu chưa khởi tạo PayOS (thiếu env), cho phép bỏ qua xác thực để không chặn webhook
+      // Nếu chưa khởi tạo PayOS, từ chối để đảm bảo an toàn
       if (!this.isInitialized) {
-        console.warn('PayOS not initialized - skipping webhook verification (ALLOWING webhook).');
-        return true;
+        console.warn('PayOS not initialized - webhook verification FAILED.');
+        return false;
       }
 
-      // Tạm thời disable webhook verification để test
-      // const isValid = this.payOS.webhooks.verifyPaymentWebhookData(webhookData);
-      console.log('Webhook verification disabled for testing');
-      return true;
+      const isValid = this.payOS.webhooks.verifyPaymentWebhookData(webhookData);
+      if (!isValid) {
+        console.warn('PayOS webhook signature verification failed.');
+      }
+      return !!isValid;
     } catch (error) {
       console.error('Error verifying webhook data:', error);
       return false;
