@@ -1,12 +1,12 @@
 # Tên của kịch bản tự động
 name: Deploy BE to VPS
 
-# 1. KÍCH HOẠT:
-# Tự động chạy khi bạn PUSH code lên nhánh 'main'
+# 1. KÍCH HOẠT (ĐÃ SỬA):
+# CHỈ TỰ ĐỘNG CHẠY KHI PUSH (hoặc MERGE) VÀO NHÁNH 'main'
 on:
   push:
     branches:
-      - main # (Nếu nhánh chính của bạn tên 'master', hãy sửa lại)
+      - main  # <-- Chỉ chạy khi có thay đổi trên 'main'
 
 # 2. CÔNG VIỆC:
 jobs:
@@ -20,7 +20,7 @@ jobs:
       - name: Deploy to VPS
         uses: appleboy/ssh-action@master
         with:
-          # Lấy 4 "bí mật" bạn đã cài ở Giai đoạn 1
+          # Lấy 4 "bí mật" bạn đã cài
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.VPS_SSH_KEY }}
@@ -30,14 +30,15 @@ jobs:
             # 1. Đi vào thư mục project
             cd ${{ secrets.VPS_PROJECT_PATH }}
             
-            # 2. Kéo code mới nhất (mà bạn vừa push) về
+            # 2. Kéo code mới nhất từ nhánh 'main' về
             git pull origin main
             
-            # 3. Build lại image cho 'backend' (nó sẽ thấy code thay đổi)
-            docker-compose build backend
+            # 3. Build lại image cho dịch vụ 'app' (dùng cú pháp V2)
+            # (Dùng tên 'app' như trong file docker-compose.yml)
+            docker compose build app
             
-            # 4. Khởi động lại container 'backend' mà không ảnh hưởng DB, Redis
-            docker-compose up -d --no-deps backend
+            # 4. Khởi động lại container 'app' (không ảnh hưởng db, redis)
+            docker compose up -d --no-deps app
             
-            # 5. Dọn dẹp image rác (để tiết kiệm dung lượng VPS)
+            # 5. Dọn dẹp image rác
             docker image prune -f
