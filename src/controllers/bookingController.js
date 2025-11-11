@@ -487,9 +487,20 @@ exports.handlePaymentWebhook = async (req, res) => {
     
     console.log('Webhook received:', webhookData);
 
-    const { orderCode, status } = webhookData;
+    // Hỗ trợ nhiều định dạng payload từ PayOS: một số biến thể để an toàn
+    const payload = webhookData?.data && typeof webhookData.data === 'object' ? webhookData.data : webhookData;
+    const rawStatus = payload?.status || webhookData?.status || payload?.paymentStatus || payload?.resultCode || payload?.code;
+    const orderCode = payload?.orderCode || payload?.order_code || payload?.orderId || payload?.order_id || payload?.transactionId || payload?.transaction_id;
+    const normalizedStatus = String(rawStatus || '').toUpperCase();
+    const isPaid =
+      normalizedStatus === 'PAID' ||
+      normalizedStatus === 'SUCCEEDED' ||
+      normalizedStatus === 'SUCCESS' ||
+      normalizedStatus === 'PAYMENT_SUCCESS' ||
+      normalizedStatus === 'COMPLETED' ||
+      normalizedStatus === '00'; // một số cổng dùng mã '00' là thành công
 
-    if (status === 'PAID') {
+    if (isPaid) {
       // Tìm booking tạm thời theo orderCode
       // Tạm thời tìm tất cả temp bookings và filter theo orderCode
       const allTempBookings = await redisService.getAllTempBookings();
@@ -1382,23 +1393,6 @@ exports.checkIn = async (req, res) => {
 
     if (booking.booking_status !== 'confirmed') {
       return res.status(400).json({ message: 'Booking không ở trạng thái confirmed' });
-    }
-
-    // Ràng buộc: Booking online chỉ được check-in từ 12:00 trưa ngày check-in
-    if (booking.booking_type === 'online') {
-      const now = moment().tz('Asia/Ho_Chi_Minh');
-      const earliestCheckIn = moment(booking.check_in_date).tz('Asia/Ho_Chi_Minh').set({
-        hour: 12,
-        minute: 0,
-        second: 0
-      });
-      if (now.isBefore(earliestCheckIn)) {
-        return res.status(400).json({
-          message: 'Chưa tới giờ check-in. Vui lòng quay lại sau 12:00 trưa ngày check-in',
-          check_in_date: booking.check_in_date,
-          earliest_check_in_time: earliestCheckIn.format('YYYY-MM-DD HH:mm:ss')
-        });
-      }
     }
 
     if (booking.check_in_time) {
