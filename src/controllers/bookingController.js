@@ -357,7 +357,8 @@ exports.addServiceToTempBooking = async (req, res) => {
     // Lưu lại vào Redis
     await redisService.saveTempBooking(temp_booking_key, tempBooking);
     // Lưu ánh xạ orderCode -> temp_booking_key để webhook tra cứu nhanh, không phụ thuộc KEYS
-    await redisService.mapOrderCodeToTempKey(orderCode, temp_booking_key);
+    const mapped = await redisService.mapOrderCodeToTempKey(orderCode, temp_booking_key);
+    console.log(`[PAYMENT_LINK] Saved temp booking & mapped orderCode=${orderCode} -> key=${temp_booking_key}, mapped=${mapped}`);
 
     return res.status(200).json({
       message: 'Thêm dịch vụ thành công',
@@ -505,13 +506,17 @@ exports.handlePaymentWebhook = async (req, res) => {
     if (isPaid) {
       // Tìm booking tạm thời theo orderCode
       // Ưu tiên tìm qua ánh xạ trực tiếp để tránh phụ thuộc vào KEYS
+      console.log(`[WEBHOOK] Looking up temp booking by orderCode=${orderCode}`);
       let tempKey = await redisService.getTempKeyByOrderCode(orderCode);
+      console.log(`[WEBHOOK] Lookup map result: tempKey=${tempKey || 'null'}`);
       let tempBooking = null;
       if (tempKey) {
         tempBooking = await redisService.getTempBooking(tempKey);
+        console.log(`[WEBHOOK] Loaded temp booking by key: ${tempKey} -> ${tempBooking ? 'FOUND' : 'NOT_FOUND'}`);
       }
       // Fallback: quét tất cả nếu chưa tìm thấy
       if (!tempBooking) {
+        console.log('[WEBHOOK] Fallback to scan all temp bookings in Redis');
         const allTempBookings = await redisService.getAllTempBookings();
         for (const [key, booking] of Object.entries(allTempBookings)) {
           if (booking.payos_order_code == orderCode) {
@@ -520,6 +525,7 @@ exports.handlePaymentWebhook = async (req, res) => {
             break;
           }
         }
+        console.log(`[WEBHOOK] Fallback scan result: ${tempBooking ? `FOUND at key=${tempKey}` : 'NOT_FOUND'}`);
       }
 
       if (!tempBooking) {
