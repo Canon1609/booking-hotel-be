@@ -209,6 +209,36 @@ class RedisService {
       return {};
     }
   }
+
+  // Lưu ánh xạ orderCode -> temp_booking_key (TTL 30 phút)
+  async mapOrderCodeToTempKey(orderCode, tempKey) {
+    try {
+      if (!this.isConnected) {
+        throw new Error('Redis not connected');
+      }
+      const key = `payos_order:${orderCode}`;
+      await this.client.setEx(key, 1800, tempKey); // 30 phút
+      return true;
+    } catch (error) {
+      console.error('Error mapping orderCode to tempKey:', error);
+      return false;
+    }
+  }
+
+  // Lấy temp_booking_key theo orderCode
+  async getTempKeyByOrderCode(orderCode) {
+    try {
+      if (!this.isConnected) {
+        return null;
+      }
+      const key = `payos_order:${orderCode}`;
+      const tempKey = await this.client.get(key);
+      return tempKey || null;
+    } catch (error) {
+      console.error('Error getting tempKey by orderCode:', error);
+      return null;
+    }
+  }
 }
 
 // Singleton instance
