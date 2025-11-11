@@ -218,6 +218,7 @@ class RedisService {
       }
       const key = `payos_order:${orderCode}`;
       await this.client.setEx(key, 1800, tempKey); // 30 phút
+      console.log(`[REDIS] mapOrderCodeToTempKey saved: ${key} -> ${tempKey}`);
       return true;
     } catch (error) {
       console.error('Error mapping orderCode to tempKey:', error);
@@ -233,6 +234,7 @@ class RedisService {
       }
       const key = `payos_order:${orderCode}`;
       const tempKey = await this.client.get(key);
+      console.log(`[REDIS] getTempKeyByOrderCode: ${key} -> ${tempKey || 'null'}`);
       return tempKey || null;
     } catch (error) {
       console.error('Error getting tempKey by orderCode:', error);
