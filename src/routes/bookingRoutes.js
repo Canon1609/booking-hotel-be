@@ -66,4 +66,7 @@ router.get('/:id/invoice', protect, adminOnly, bookingController.viewInvoice);
 // Cập nhật trạng thái phòng - Admin/Staff
 router.put('/room/:room_id/status', protect, adminOnly, bookingController.updateRoomStatus);
 
+// Thêm dịch vụ vào booking đã tồn tại - Admin/Staff
+router.post('/:id/add-service', protect, adminOnly, bookingController.addServiceToBooking);
+
 module.exports = router;

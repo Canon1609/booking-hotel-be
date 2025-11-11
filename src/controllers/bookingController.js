@@ -291,6 +291,80 @@ exports.createTempBooking = async (req, res) => {
   }
 };
 
+// Admin/Staff: Thêm dịch vụ vào booking đã tồn tại (khách có thể phát sinh dịch vụ khi đến)
+exports.addServiceToBooking = async (req, res) => {
+  try {
+    const { id } = req.params; // booking_id
+    const { service_id, quantity = 1, payment_type = 'postpaid' } = req.body;
+
+    // Validate đầu vào
+    if (!service_id) {
+      return res.status(400).json({ message: 'Vui lòng nhập service_id' });
+    }
+    const parsedQuantity = Number(quantity);
+    if (!Number.isInteger(parsedQuantity) || parsedQuantity < 1) {
+      return res.status(400).json({ message: 'quantity phải là số nguyên dương' });
+    }
+    if (!['prepaid', 'postpaid'].includes(payment_type)) {
+      return res.status(400).json({ message: "payment_type phải là 'prepaid' hoặc 'postpaid'" });
+    }
+
+    // Tìm booking
+    const booking = await Booking.findByPk(id);
+    if (!booking) {
+      return res.status(404).json({ message: 'Không tìm thấy booking' });
+    }
+
+    // Chỉ cho phép thêm dịch vụ khi booking còn hiệu lực
+    const allowStatuses = ['confirmed', 'checked_in'];
+    if (!allowStatuses.includes(booking.booking_status)) {
+      return res.status(400).json({ 
+        message: 'Chỉ có thể thêm dịch vụ khi booking đang confirmed hoặc checked_in',
+        current_status: booking.booking_status,
+        allowed_statuses: allowStatuses
+      });
+    }
+
+    // Tìm dịch vụ
+    const service = await Service.findByPk(service_id);
+    if (!service) {
+      return res.status(404).json({ message: 'Không tìm thấy dịch vụ' });
+    }
+    const unitPrice = Number(service.price);
+    if (!unitPrice || unitPrice <= 0) {
+      return res.status(400).json({ message: 'Giá dịch vụ không hợp lệ' });
+    }
+
+    const totalPrice = unitPrice * parsedQuantity;
+
+    // Tạo booking service
+    const created = await BookingService.create({
+      booking_id: booking.booking_id || booking.id || id,
+      service_id,
+      quantity: parsedQuantity,
+      unit_price: unitPrice,
+      total_price: totalPrice,
+      payment_type,
+      status: 'active'
+    });
+
+    // Nếu là prepaid, có thể cộng vào final_price để phản ánh tổng phải trả trước
+    if (payment_type === 'prepaid') {
+      const currentFinal = Number(booking.final_price) || 0;
+      booking.final_price = currentFinal + totalPrice;
+      await booking.save();
+    }
+
+    return res.status(201).json({
+      message: 'Thêm dịch vụ vào booking thành công',
+      booking_service: created
+    });
+  } catch (error) {
+    console.error('Error adding service to booking:', error);
+    return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+  }
+};
+
 // 1.2. Thêm dịch vụ vào booking tạm thời
 exports.addServiceToTempBooking = async (req, res) => {
   try {
