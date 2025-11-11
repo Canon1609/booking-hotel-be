@@ -5,7 +5,9 @@ const moment = require('moment-timezone');
 // Gửi email nhắc nhở cho khách hàng có check-in ngày mai
 const sendBookingReminderEmails = async () => {
   try {
-    const tomorrow = moment().tz('Asia/Ho_Chi_Minh').add(1, 'day').format('YYYY-MM-DD');
+    const nowVN = moment().tz('Asia/Ho_Chi_Minh');
+    const tomorrow = nowVN.clone().add(1, 'day').format('YYYY-MM-DD');
+    console.log(`[EMAIL REMINDER] Cron tick at ${nowVN.format('YYYY-MM-DD HH:mm:ss')} VN - querying bookings for check-in date ${tomorrow}`);
     
     // Tìm tất cả booking có check-in ngày mai và status confirmed
     const bookings = await Booking.findAll({
@@ -14,19 +16,26 @@ const sendBookingReminderEmails = async () => {
         booking_status: 'confirmed'
       },
       include: [
-        { 
-          model: User, 
-          as: 'user', 
-          attributes: ['user_id', 'full_name', 'email', 'phone'] 
+        {
+          model: User,
+          as: 'user',
+          attributes: ['user_id', 'full_name', 'email', 'phone']
         },
-        { 
-          model: Room, 
-          as: 'room', 
-          include: [{ 
-            model: RoomType, 
-            as: 'room_type',
-            attributes: ['room_type_name', 'description', 'amenities']
-          }]
+        // Tham chiếu qua booking_rooms -> room -> room_type (tránh join alias 'room' trực tiếp vì online booking không có room_id)
+        {
+          model: BookingRoom,
+          as: 'booking_rooms',
+          include: [{
+            model: Room,
+            as: 'room',
+            include: [{
+              model: RoomType,
+              as: 'room_type',
+              attributes: ['room_type_name', 'description', 'amenities']
+            }],
+            attributes: ['room_id', 'room_num', 'status']
+          }],
+          attributes: ['booking_room_id', 'room_id', 'assigned_at']
         }
       ]
     });
