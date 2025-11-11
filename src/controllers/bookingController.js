@@ -699,6 +699,7 @@ exports.handlePaymentWebhook = async (req, res) => {
 
       // Xóa booking tạm thời khỏi Redis
       await redisService.deleteTempBooking(tempKey);
+      console.log(`[WEBHOOK] Deleted temp booking key: ${tempKey}`);
 
       // Gửi email xác nhận
       const user = await User.findByPk(tempBooking.user_id);
