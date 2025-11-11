@@ -356,9 +356,6 @@ exports.addServiceToTempBooking = async (req, res) => {
 
     // Lưu lại vào Redis
     await redisService.saveTempBooking(temp_booking_key, tempBooking);
-    // Lưu ánh xạ orderCode -> temp_booking_key để webhook tra cứu nhanh, không phụ thuộc KEYS
-    const mapped = await redisService.mapOrderCodeToTempKey(orderCode, temp_booking_key);
-    console.log(`[PAYMENT_LINK] Saved temp booking & mapped orderCode=${orderCode} -> key=${temp_booking_key}, mapped=${mapped}`);
 
     return res.status(200).json({
       message: 'Thêm dịch vụ thành công',
@@ -428,6 +425,9 @@ exports.createPaymentLink = async (req, res) => {
     tempBooking.promotion_id = promotion?.promotion_id || null;
 
     await redisService.saveTempBooking(temp_booking_key, tempBooking);
+    // Lưu ánh xạ orderCode -> temp_booking_key để webhook tra cứu nhanh
+    const mapped = await redisService.mapOrderCodeToTempKey(orderCode, temp_booking_key);
+    console.log(`[PAYMENT_LINK] Mapped orderCode=${orderCode} -> key=${temp_booking_key}, mapped=${mapped}`);
 
     // Tạo link thanh toán PayOS
     const num_rooms = tempBooking.num_rooms || 1;
@@ -700,6 +700,12 @@ exports.handlePaymentWebhook = async (req, res) => {
       // Xóa booking tạm thời khỏi Redis
       await redisService.deleteTempBooking(tempKey);
       console.log(`[WEBHOOK] Deleted temp booking key: ${tempKey}`);
+      // Xóa ánh xạ orderCode -> tempKey (không quan trọng nếu thất bại, TTL sẽ tự hết)
+      try {
+        await redisService.deleteOrderCodeMap(orderCode);
+      } catch (e) {
+        console.warn(`[WEBHOOK] Failed to delete orderCode map for ${orderCode}:`, e?.message || e);
+      }
 
       // Gửi email xác nhận
       const user = await User.findByPk(tempBooking.user_id);

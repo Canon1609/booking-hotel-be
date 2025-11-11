@@ -241,6 +241,22 @@ class RedisService {
       return null;
     }
   }
+
+  // Xóa ánh xạ orderCode -> temp_booking_key (sau khi đã insert DB)
+  async deleteOrderCodeMap(orderCode) {
+    try {
+      if (!this.isConnected) {
+        return false;
+      }
+      const key = `payos_order:${orderCode}`;
+      await this.client.del(key);
+      console.log(`[REDIS] deleteOrderCodeMap: deleted ${key}`);
+      return true;
+    } catch (error) {
+      console.error('Error deleting orderCode map:', error);
+      return false;
+    }
+  }
 }
 
 // Singleton instance
