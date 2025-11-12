@@ -876,8 +876,8 @@ exports.handlePaymentWebhook = async (req, res) => {
                 </div>
                 
                 <div class="footer">
-                  <p><strong>Hotel Booking System</strong></p>
-                  <p>📧 Email: support@hotelbooking.com | 📞 Hotline: 1900-xxxx</p>
+                  <p><strong>Bean Hotel</strong></p>
+                  <p>📧 Email: beanhotelvn@gmail.com | 📞 Hotline: 0366228041</p>
                   <p>Cảm ơn bạn đã tin tưởng và sử dụng dịch vụ của chúng tôi!</p>
                 </div>
               </div>
