@@ -9,6 +9,13 @@ const startEmailReminderCron = () => {
   });
 
   console.log('[EMAIL CRON] Email reminder job started (runs daily at 18:00 VN time)');
+
+  // Test schedule: chạy mỗi 1 phút 
+  // cron.schedule('*/1 * * * *', sendBookingReminderEmails, {
+  //   scheduled: true,
+  //   timezone: "Asia/Ho_Chi_Minh"
+  // });
+  // console.log('[EMAIL CRON] TEST MODE enabled (runs every 1 minute, VN time)');
 };
 
 module.exports = {

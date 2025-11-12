@@ -65,7 +65,6 @@ const sendBookingReminderEmails = async () => {
               <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
                 <h3 style="color: #2c3e50; margin-top: 0;">Thông tin đặt phòng</h3>
                 <p><strong>Mã đặt phòng:</strong> ${booking.booking_code}</p>
-                <p><strong>Loại phòng:</strong> ${booking.room?.room_type?.room_type_name || 'N/A'}</p>
                 <p><strong>Số lượng phòng:</strong> <strong>${numRooms} phòng</strong></p>
                 <p><strong>Ngày check-in:</strong> ${moment(booking.check_in_date).format('DD/MM/YYYY')} lúc ${checkInTime}</p>
                 <p><strong>Ngày check-out:</strong> ${moment(booking.check_out_date).format('DD/MM/YYYY')} lúc ${checkOutTime}</p>
@@ -78,14 +77,14 @@ const sendBookingReminderEmails = async () => {
                 <ul style="margin: 0; padding-left: 20px;">
                   <li>Vui lòng mang theo CMND/CCCD để làm thủ tục check-in</li>
                   <li>Giờ check-in: ${checkInTime} - Giờ check-out: ${checkOutTime}</li>
-                  <li>Nếu có thay đổi, vui lòng liên hệ hotline: 1900-xxxx</li>
+                  <li>Nếu có thay đổi, vui lòng liên hệ hotline: 0366228041</li>
                 </ul>
               </div>
               
               <p>Chúng tôi rất mong được phục vụ bạn!</p>
               
               <p>Trân trọng,<br>
-              <strong>Khách sạn ABC</strong></p>
+              <strong>Bean Hotel</strong></p>
             </div>
           `;
 
@@ -148,14 +147,14 @@ const sendBookingConfirmationEmail = async (booking, user) => {
           <ul style="margin: 0; padding-left: 20px;">
             <li>Vui lòng mang theo CMND/CCCD để làm thủ tục check-in</li>
             <li>Giờ check-in: 14:00 - Giờ check-out: 12:00</li>
-            <li>Nếu có thay đổi, vui lòng liên hệ hotline: 1900-xxxx</li>
+            <li>Nếu có thay đổi, vui lòng liên hệ hotline: 0366228041</li>
           </ul>
         </div>
         
         <p>Chúng tôi rất mong được phục vụ bạn!</p>
         
         <p>Trân trọng,<br>
-        <strong>Khách sạn ABC</strong></p>
+        <strong>Bean Hotel</strong></p>
       </div>
     `;
 
@@ -236,7 +235,7 @@ const sendInvoiceEmail = async (booking, user, invoiceData) => {
         <p>Cảm ơn bạn đã sử dụng dịch vụ của chúng tôi!</p>
         
         <p>Trân trọng,<br>
-        <strong>Khách sạn ABC</strong></p>
+        <strong>Bean Hotel</strong></p>
       </div>
     `;
 
@@ -446,8 +445,8 @@ const sendReviewRequestEmail = async (booking, user) => {
           
           <div class="footer">
             <p><strong>Bean Hotel</strong></p>
-            <p>📧 Email: info@beanhotel.com | 📞 Hotline: 1900-xxxx</p>
-            <p>Địa chỉ: 123 Đường ABC, Quận 1, TP.HCM</p>
+            <p>📧 Email: beanhotelvn@gmail.com | 📞 Hotline: 0366228041</p>
+            <p>Địa chỉ: 12 Đường Nguyễn Văn Bảo, Phường Hạnh Thông, Quận Gò Vấp, TP.Hồ Chí Minh</p>
             <p>Rất hân hạnh được phục vụ bạn!</p>
           </div>
         </div>
@@ -491,7 +490,7 @@ module.exports = {
             ${refundInfo.payment_date ? `<p><strong>Thời gian:</strong> ${refundInfo.payment_date}</p>` : ''}
           </div>
           <p>Nếu bạn thanh toán online, khoản tiền sẽ được hoàn về phương thức thanh toán ban đầu trong 3–7 ngày làm việc (tùy ngân hàng).</p>
-          <p>Trân trọng,<br/><strong>Hotel Booking Team</strong></p>
+          <p>Trân trọng,<br/><strong>Bean Hotel Team</strong></p>
         </div>
       `;
 
@@ -528,7 +527,7 @@ module.exports = {
             <li>Chi nhánh (nếu có)</li>
           </ul>
           <p>Sau khi nhận được thông tin, chúng tôi sẽ xử lý hoàn tiền trong vòng 1-3 ngày làm việc.</p>
-          <p>Trân trọng,<br/><strong>Hotel Booking Team</strong></p>
+          <p>Trân trọng,<br/><strong>Bean Hotel Team</strong></p>
         </div>
       `;
 
