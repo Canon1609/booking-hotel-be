@@ -261,7 +261,7 @@ exports.searchAvailability = async (req, res) => {
           model: RoomType,
           as: 'room_type',
           required: true,
-          attributes: ['room_type_id', 'room_type_name', 'capacity', 'images', 'amenities', 'area'],
+          attributes: ['room_type_id', 'room_type_name', 'description', 'capacity', 'images', 'amenities', 'area'],
           include: [
             {
               model: RoomPrice,
@@ -320,9 +320,11 @@ exports.searchAvailability = async (req, res) => {
         roomTypeInfoById[key] = {
           room_type_id: rt.room_type_id,
           room_type_name: rt.room_type_name,
+          description: rt.description,
           capacity: rt.capacity,
           amenities: rt.amenities,
           area: rt.area,
+          images: rt.images,
         };
       }
     });
@@ -355,13 +357,14 @@ exports.searchAvailability = async (req, res) => {
     if (missingTypeIds.length > 0) {
       const missingTypes = await RoomType.findAll({
         where: { room_type_id: missingTypeIds },
-        attributes: ['room_type_id', 'room_type_name', 'capacity', 'images', 'amenities', 'area']
+        attributes: ['room_type_id', 'room_type_name', 'description', 'capacity', 'images', 'amenities', 'area']
       });
       missingTypes.forEach(rt => {
         const data = rt.get({ plain: true });
         roomTypeInfoById[data.room_type_id] = {
           room_type_id: data.room_type_id,
           room_type_name: data.room_type_name,
+          description: data.description,
           capacity: data.capacity,
           amenities: data.amenities,
           area: data.area,
