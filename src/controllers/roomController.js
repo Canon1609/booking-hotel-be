@@ -372,6 +372,33 @@ exports.searchAvailability = async (req, res) => {
         };
       });
     }
+
+    // Get prices for all room types in summary
+    const allTypeIds = Array.from(typeIds).map(id => parseInt(id, 10));
+    const roomPrices = await RoomPrice.findAll({
+      where: {
+        room_type_id: { [Op.in]: allTypeIds },
+        ...priceDateCondition
+      },
+      attributes: ['room_type_id', 'price_id', 'start_date', 'end_date', 'price_per_night'],
+      order: [['room_type_id', 'ASC'], ['start_date', 'ASC']]
+    });
+
+    // Group prices by room_type_id
+    const pricesByRoomType = {};
+    roomPrices.forEach(price => {
+      const typeId = price.room_type_id;
+      if (!pricesByRoomType[typeId]) {
+        pricesByRoomType[typeId] = [];
+      }
+      pricesByRoomType[typeId].push({
+        price_id: price.price_id,
+        start_date: price.start_date,
+        end_date: price.end_date,
+        price_per_night: price.price_per_night
+      });
+    });
+
     const summaryByRoomType = Array.from(typeIds).map(id => {
       const roomTypeId = parseInt(id, 10);
       const totalRooms = totalByType[roomTypeId] || 0;
@@ -384,7 +411,8 @@ exports.searchAvailability = async (req, res) => {
         booked_rooms: Math.max(totalRooms - availableRooms, 0),
         available_rooms: availableRooms,
         sold_out: availableRooms === 0,
-        availability_text: availableRooms > 0 ? `Còn ${availableRooms} phòng` : 'Hết phòng'
+        availability_text: availableRooms > 0 ? `Còn ${availableRooms} phòng` : 'Hết phòng',
+        prices: pricesByRoomType[roomTypeId] || []
       };
     }).sort((a, b) => a.room_type_id - b.room_type_id);
 
