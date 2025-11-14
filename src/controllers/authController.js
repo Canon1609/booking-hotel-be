@@ -130,6 +130,13 @@ exports.login = async (req, res) => {
       return res.status(400).json({ message: 'Mật khẩu không đúng' });
     }
 
+    // Kiểm tra tài khoản đã được xác minh chưa
+    if (!user.is_verified) {
+      return res.status(403).json({ 
+        message: 'Tài khoản chưa được xác minh. Vui lòng kiểm tra email để xác minh tài khoản.' 
+      });
+    }
+
     // Tạo token JWT cho người dùng
     const token = signToken({ id: user.user_id, role: user.role });
 
