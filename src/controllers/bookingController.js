@@ -1346,14 +1346,20 @@ exports.getBookingById = async (req, res) => {
       is_refund: parseFloat(payment.amount) < 0  // Đánh dấu là refund nếu amount < 0
     })) || [];
 
-    // Tính toán tổng tiền đã thanh toán và đã hoàn
+    // Tính toán tổng tiền đã thanh toán và đã hoàn (chỉ tính các payment đã completed)
+    // totalPaid: Tổng tiền khách đã thanh toán (các payment có amount > 0)
     const totalPaid = formattedPayments
-      .filter(p => p.amount > 0)
+      .filter(p => p.amount > 0 && p.status === 'completed')
       .reduce((sum, p) => sum + p.amount, 0);
     
+    // totalRefunded: Tổng tiền đã hoàn lại cho khách (các payment có amount < 0, lấy giá trị tuyệt đối)
     const totalRefunded = formattedPayments
-      .filter(p => p.amount < 0)
+      .filter(p => p.amount < 0 && p.status === 'completed')
       .reduce((sum, p) => sum + Math.abs(p.amount), 0);
+
+    // net_amount: Số tiền thực tế thu được = Tổng đã thanh toán - Tổng đã hoàn
+    // Ví dụ: Khách thanh toán 10, bị phạt 30% (hoàn 7) => net_amount = 10 - 7 = 3
+    const netAmount = totalPaid - totalRefunded;
 
     return res.status(200).json({ 
       booking: {
@@ -1364,7 +1370,7 @@ exports.getBookingById = async (req, res) => {
         payment_summary: {
           total_paid: totalPaid,
           total_refunded: totalRefunded,
-          net_amount: totalPaid - totalRefunded,
+          net_amount: netAmount,
           has_payments: formattedPayments.length > 0
         }
       }
@@ -2085,7 +2091,7 @@ exports.refundBookingAdmin = async (req, res) => {
 
     // Tổng đã thanh toán (completed, dương) và đã hoàn (completed, âm)
     const totalPaid = (await Payment.sum('amount', { where: { booking_id: booking.booking_id, status: 'completed', amount: { [Op.gt]: 0 } } })) || 0;
-    const totalRefundedAbs = Math.abs((await Payment.sum('amount', { where: { booking_id: booking.booking_id, status: 'completed', amount: { [Op.lt]: 0 } } })) || 0);
+    let totalRefundedAbs = Math.abs((await Payment.sum('amount', { where: { booking_id: booking.booking_id, status: 'completed', amount: { [Op.lt]: 0 } } })) || 0);
 
     // Kiểm tra xem có payment pending không (nếu có thì sẽ được cập nhật, không tạo mới)
     const pendingRefund = await Payment.findOne({
@@ -2156,6 +2162,39 @@ exports.refundBookingAdmin = async (req, res) => {
       });
     }
 
+    // Kiểm tra xem đã có payment refund completed với số tiền tương tự chưa
+    // (tránh tạo duplicate khi đã hủy booking và tạo refund rồi)
+    const existingCompletedRefund = await Payment.findOne({
+      where: {
+        booking_id: booking.booking_id,
+        amount: { [Op.lt]: 0 },
+        status: 'completed'
+      },
+      order: [['created_at', 'DESC']]
+    });
+
+    // Nếu đã có payment refund completed với số tiền tương tự, không tạo mới
+    if (existingCompletedRefund) {
+      const existingRefundAmount = Math.abs(Number(existingCompletedRefund.amount));
+      const requestedAmount = Math.abs(Number(amount));
+      
+      // Nếu số tiền giống nhau (sai số < 1 VNĐ), không tạo duplicate
+      if (Math.abs(existingRefundAmount - requestedAmount) < 1) {
+        return res.status(200).json({
+          message: 'Đã hoàn tiền rồi, không tạo duplicate',
+          booking_id: booking.booking_id,
+          payment_status: booking.payment_status,
+          existing_refund_payment: {
+            payment_id: existingCompletedRefund.payment_id,
+            amount: existingRefundAmount,
+            method: existingCompletedRefund.method,
+            transaction_id: existingCompletedRefund.transaction_id,
+            payment_date: existingCompletedRefund.payment_date
+          }
+        });
+      }
+    }
+
     // Ưu tiên cập nhật bản ghi hoàn tiền đang chờ (nếu có)
     let refundPayment = await Payment.findOne({
       where: {
@@ -2167,8 +2206,12 @@ exports.refundBookingAdmin = async (req, res) => {
     });
 
     let refundAmountAbs;
+    let isUpdatingPending = false;
+    let hasRecalculatedTotalRefunded = false; // Flag để biết đã tính lại totalRefundedAbs chưa
+    
     if (refundPayment) {
       // Cập nhật bản ghi pending thành hoàn tất (có thể cập nhật cả số tiền nếu khác)
+      isUpdatingPending = true;
       refundPayment.amount = -Math.abs(Number(amount)); // Cập nhật số tiền theo request mới
       refundPayment.method = method;
       refundPayment.status = 'completed';
@@ -2176,20 +2219,45 @@ exports.refundBookingAdmin = async (req, res) => {
       refundPayment.payment_date = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
       await refundPayment.save();
       refundAmountAbs = Math.abs(Number(amount)); // Dùng số tiền mới từ request
+      
+      // Nếu đang cập nhật pending, cần tính lại totalRefundedAbs sau khi cập nhật
+      // Vì pending đã được cộng vào totalRefundedAbs ở trên (qua pendingRefundAbs), 
+      // nhưng bây giờ nó đã thành completed, nên cần tính lại từ DB
+      totalRefundedAbs = Math.abs((await Payment.sum('amount', { where: { booking_id: booking.booking_id, status: 'completed', amount: { [Op.lt]: 0 } } })) || 0);
+      hasRecalculatedTotalRefunded = true;
     } else {
-      refundPayment = await Payment.create({
-        booking_id: booking.booking_id,
-        amount: -Math.abs(Number(amount)),
-        method,
-        status: 'completed',
-        transaction_id: `ADMIN-REFUND-${booking.booking_code}-${Date.now()}`,
-        payment_date: moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss')
-      });
-      refundAmountAbs = Math.abs(Number(amount));
+      // Chỉ tạo mới nếu chưa có payment refund completed nào
+      // (tránh duplicate khi đã hủy booking tạo refund rồi)
+      if (!existingCompletedRefund) {
+        refundPayment = await Payment.create({
+          booking_id: booking.booking_id,
+          amount: -Math.abs(Number(amount)),
+          method,
+          status: 'completed',
+          transaction_id: `ADMIN-REFUND-${booking.booking_code}-${Date.now()}`,
+          payment_date: moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss')
+        });
+        refundAmountAbs = Math.abs(Number(amount));
+        // Tạo mới thì chưa tính lại, sẽ cộng thêm vào totalRefundedAbs
+      } else {
+        // Nếu đã có completed refund nhưng số tiền khác, cập nhật số tiền
+        refundPayment = existingCompletedRefund;
+        refundPayment.amount = -Math.abs(Number(amount));
+        refundPayment.method = method;
+        refundPayment.transaction_id = `ADMIN-REFUND-${booking.booking_code}-${Date.now()}`;
+        refundPayment.payment_date = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
+        await refundPayment.save();
+        refundAmountAbs = Math.abs(Number(amount));
+        // Tính lại totalRefundedAbs sau khi cập nhật
+        totalRefundedAbs = Math.abs((await Payment.sum('amount', { where: { booking_id: booking.booking_id, status: 'completed', amount: { [Op.lt]: 0 } } })) || 0);
+        hasRecalculatedTotalRefunded = true;
+      }
     }
 
     // Booking: cập nhật trạng thái payment theo mức đã hoàn
-    const totalRefundedAfter = totalRefundedAbs + refundAmountAbs;
+    // Nếu đã tính lại totalRefundedAbs (pending hoặc existing completed), dùng giá trị đã tính lại
+    // Nếu tạo mới, thì cộng thêm refundAmountAbs
+    const totalRefundedAfter = hasRecalculatedTotalRefunded ? totalRefundedAbs : (totalRefundedAbs + refundAmountAbs);
     const fullyRefundedTarget = Math.min(maxPolicyRefund, totalPaid);
     booking.payment_status = totalRefundedAfter >= fullyRefundedTarget - 1e-6 ? 'refunded' : 'partial_refunded';
     const append = `Admin đánh dấu hoàn tiền ${refundAmountAbs.toLocaleString('vi-VN')} VNĐ (${method})${note ? ` - ${note}` : ''}`;
