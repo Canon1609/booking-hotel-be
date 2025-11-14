@@ -156,14 +156,17 @@ exports.searchAvailability = async (req, res) => {
       max_price,
       sort = 'price_asc',
       page = 1,
-      limit = 10
+      limit
     } = req.query;
 
     if (!check_in || !check_out) {
       return res.status(400).json({ message: 'Thiếu check_in hoặc check_out' });
     }
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    // Chỉ áp dụng limit và offset nếu có limit, nếu không thì trả về tất cả
+    const parsedLimit = limit ? parseInt(limit) : null;
+    const parsedPage = parseInt(page) || 1;
+    const offset = parsedLimit ? (parsedPage - 1) * parsedLimit : null;
 
     // Normalize dates using Asia/Ho_Chi_Minh timezone to avoid UTC shift
     const checkInTz = moment(check_in).tz('Asia/Ho_Chi_Minh');
@@ -276,8 +279,8 @@ exports.searchAvailability = async (req, res) => {
       distinct: true,
       subQuery: false,
       order,
-      limit: parseInt(limit),
-      offset,
+      ...(parsedLimit && { limit: parsedLimit }),
+      ...(offset !== null && { offset }),
     });
 
     // Optional guests capacity filter at JS level when capacity stored on RoomType
