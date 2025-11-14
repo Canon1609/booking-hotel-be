@@ -104,6 +104,15 @@ const Booking = sequelize.define('Booking', {
   timestamps: false,
   tableName: 'bookings',
   hooks: {
+    beforeCreate: (booking) => {
+      const now = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
+      if (!booking.created_at) {
+        booking.created_at = now;
+      }
+      if (!booking.updated_at) {
+        booking.updated_at = now;
+      }
+    },
     beforeUpdate: (booking) => {
       booking.updated_at = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
     }

@@ -1444,6 +1444,8 @@ exports.findBookingByCode = async (req, res) => {
         final_price: booking.final_price,
         check_in_time: booking.check_in_time,
         check_out_time: booking.check_out_time,
+        created_at: booking.created_at,
+        updated_at: booking.updated_at,
         user: booking.user,
         room_type: booking.room_type,
         rooms: rooms, // Danh sách tất cả phòng của booking
