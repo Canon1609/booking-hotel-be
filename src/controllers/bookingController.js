@@ -2071,11 +2071,11 @@ exports.refundBookingAdmin = async (req, res) => {
     const hoursUntilCheckIn = checkInDateTime.diff(now, 'hours');
     const hoursSinceBooking = now.diff(createdAt, 'hours');
     const isWithin48h = hoursUntilCheckIn <= 48;
-    const isWithin12h = hoursSinceBooking <= 12;
+    const isWithin1h = hoursSinceBooking <= 1;
 
     let penaltyRate;
-    // Ưu tiên kiểm tra thời gian từ lúc đặt (12h) trước, sau đó mới kiểm tra thời gian đến check-in (48h)
-    if (isWithin12h) penaltyRate = 0.15; // phạt 15% (hoàn 85%) - ưu tiên cao nhất
+    // Ưu tiên kiểm tra thời gian từ lúc đặt (1h) trước, sau đó mới kiểm tra thời gian đến check-in (48h)
+    if (isWithin1h) penaltyRate = 0.15; // phạt 15% (hoàn 85%) - ưu tiên cao nhất
     else if (isWithin48h) penaltyRate = 1; // mất 100%
     else penaltyRate = 0.3; // phạt 30%
 
@@ -2111,10 +2111,10 @@ exports.refundBookingAdmin = async (req, res) => {
       refundableCap = Math.max(refundableCap, Math.abs(Number(amount)));
     } else if (!pendingRefund && Math.abs(Number(amount)) === totalRefundedAbs && totalRefundedAbs > 0) {
       // Nếu không có pending nhưng số tiền refund bằng với số đã refund, có thể là refund lại
-      // Kiểm tra xem số tiền này có đúng với chính sách 12h không (85% của finalPrice)
-      const expected12hRefund = finalPrice * 0.85;
-      if (Math.abs(Math.abs(Number(amount)) - expected12hRefund) < 1) {
-        // Số tiền đúng với chính sách 12h, cho phép refund lại
+      // Kiểm tra xem số tiền này có đúng với chính sách 1h không (85% của finalPrice)
+      const expected1hRefund = finalPrice * 0.85;
+      if (Math.abs(Math.abs(Number(amount)) - expected1hRefund) < 1) {
+        // Số tiền đúng với chính sách 1h, cho phép refund lại
         refundableCap = Math.max(refundableCap, Math.abs(Number(amount)));
       }
     }
@@ -2123,7 +2123,7 @@ exports.refundBookingAdmin = async (req, res) => {
     console.log('Refund Admin Debug:', {
       hoursSinceBooking,
       hoursUntilCheckIn,
-      isWithin12h,
+      isWithin1h,
       isWithin48h,
       penaltyRate,
       finalPrice,
@@ -2142,7 +2142,7 @@ exports.refundBookingAdmin = async (req, res) => {
       return res.status(400).json({ 
         message: 'Số tiền hoàn vượt quá mức cho phép theo chính sách',
         allowed_max_refund: refundableCap,
-        policy: isWithin48h ? 'Trong 48h trước check-in - không hoàn' : (isWithin12h ? 'Trong 12h từ lúc đặt - hoàn tối đa 85%' : 'Trước 48h và >12h từ lúc đặt - hoàn tối đa 70%'),
+        policy: isWithin48h ? 'Trong 48h trước check-in - không hoàn' : (isWithin1h ? 'Trong 1h từ lúc đặt - hoàn tối đa 85%' : 'Trước 48h và >1h từ lúc đặt - hoàn tối đa 70%'),
         debug: {
           hoursSinceBooking,
           hoursUntilCheckIn,
@@ -2168,13 +2168,14 @@ exports.refundBookingAdmin = async (req, res) => {
 
     let refundAmountAbs;
     if (refundPayment) {
-      // Cập nhật bản ghi pending thành hoàn tất
+      // Cập nhật bản ghi pending thành hoàn tất (có thể cập nhật cả số tiền nếu khác)
+      refundPayment.amount = -Math.abs(Number(amount)); // Cập nhật số tiền theo request mới
       refundPayment.method = method;
       refundPayment.status = 'completed';
       refundPayment.transaction_id = `ADMIN-REFUND-${booking.booking_code}-${Date.now()}`;
       refundPayment.payment_date = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
       await refundPayment.save();
-      refundAmountAbs = Math.abs(Number(refundPayment.amount));
+      refundAmountAbs = Math.abs(Number(amount)); // Dùng số tiền mới từ request
     } else {
       refundPayment = await Payment.create({
         booking_id: booking.booking_id,
