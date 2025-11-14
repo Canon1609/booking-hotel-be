@@ -447,7 +447,7 @@ function convertToGeminiFunctions(openapiSpec) {
       // Add date handling instructions for availability/search operations
       if (operation.operationId.includes('availability') || operation.operationId.includes('search')) {
         const currentYear = new Date().getFullYear();
-        enhancedDescription += ` QUAN TRỌNG: Khi người dùng nói "tới đây" hoặc chỉ nói ngày/tháng (ví dụ: "20/11"), hãy dùng năm hiện tại (${currentYear}). Nếu ngày đã qua trong năm hiện tại (so với hôm nay), tự động dùng năm tiếp theo. Ví dụ: nếu hôm nay là tháng 12/${currentYear} và người dùng nói "20/11 tới đây", hãy dùng ${currentYear + 1}-11-20.`;
+        enhancedDescription += ` QUAN TRỌNG: Khi người dùng nói "tới đây" hoặc chỉ nói ngày/tháng (ví dụ: "20/11"), hãy dùng năm hiện tại (${currentYear}).`;
       }
       
       functions.push({
