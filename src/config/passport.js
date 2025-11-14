@@ -31,6 +31,10 @@ if (hasGoogleOAuth) {
         if (user) {
           // Cập nhật Google ID cho user hiện tại
           user.google_id = profile.id;
+          // Tự động xác minh tài khoản vì Google đã verify email
+          if (!user.is_verified) {
+            user.is_verified = true;
+          }
           await user.save();
         } else {
           // Tạo user mới
