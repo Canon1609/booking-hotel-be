@@ -3,11 +3,15 @@ const router = express.Router();
 const reportController = require('../controllers/reportController');
 const { protect, adminOnly } = require('../middlewares/authMiddleware');
 
-// ========== BÁO CÁO DOANH THU (REVENUE REPORTS) - EXCEL ==========
+// ========== BÁO CÁO DOANH THU (REVENUE REPORTS) ==========
 
-// Xuất báo cáo doanh thu
+// Xuất báo cáo doanh thu Excel
 // GET /api/reports/revenue?start_date=2024-01-01&end_date=2024-01-31
 router.get('/revenue', protect, adminOnly, reportController.exportRevenueReport);
+
+// Xuất báo cáo doanh thu PDF
+// GET /api/reports/revenue/pdf?start_date=2024-01-01&end_date=2024-01-31
+router.get('/revenue/pdf', protect, adminOnly, reportController.exportRevenueReportPDF);
 
 // ========== BÁO CÁO CÔNG SUẤT PHÒNG (OCCUPANCY REPORTS) - EXCEL ==========
 

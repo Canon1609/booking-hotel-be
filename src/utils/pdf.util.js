@@ -758,6 +758,311 @@ class PDFService {
       </html>
     `;
   }
+
+  // Tạo báo cáo doanh thu PDF
+  async generateRevenueReportPDF(reportData) {
+    try {
+      if (!this.browser) {
+        await this.initialize();
+      }
+
+      const page = await this.browser.newPage();
+      const htmlContent = this.generateRevenueReportHTML(reportData);
+      
+      await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+      
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: {
+          top: '15mm',
+          right: '15mm',
+          bottom: '15mm',
+          left: '15mm'
+        }
+      });
+
+      await page.close();
+      return pdfBuffer;
+
+    } catch (error) {
+      console.error('Error generating revenue report PDF:', error);
+      throw error;
+    }
+  }
+
+  // Tạo HTML cho báo cáo doanh thu
+  generateRevenueReportHTML(reportData) {
+    const {
+      startDate,
+      endDate,
+      totalRevenue,
+      totalRefunded,
+      accommodationRevenue,
+      serviceRevenue,
+      cancellationFeeRevenue,
+      onlineRevenue,
+      walkinRevenue,
+      revenueByDate
+    } = reportData;
+
+    const currentTime = moment().tz('Asia/Ho_Chi_Minh').format('DD/MM/YYYY HH:mm');
+    const dateRange = `Từ ${startDate.format('DD/MM/YYYY')} đến ${endDate.format('DD/MM/YYYY')}`;
+    
+    const formatCurrency = (amount) => {
+      return parseFloat(amount || 0).toLocaleString('vi-VN');
+    };
+
+    // Tạo bảng doanh thu theo ngày
+    const revenueByDateRows = Object.keys(revenueByDate || {})
+      .sort()
+      .map(date => {
+        const revenue = revenueByDate[date];
+        return `
+          <tr>
+            <td>${moment(date).format('DD/MM/YYYY')}</td>
+            <td style="text-align: right;">${formatCurrency(revenue)}đ</td>
+          </tr>
+        `;
+      }).join('');
+
+    return `
+      <!DOCTYPE html>
+      <html lang="vi">
+      <head>
+        <meta charset="UTF-8">
+        <title>Báo cáo Doanh thu - ${dateRange}</title>
+        <style>
+          body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+            line-height: 1.6;
+          }
+          
+          .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #2c3e50;
+            padding-bottom: 20px;
+          }
+          
+          .hotel-name {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 10px;
+          }
+          
+          .report-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #27ae60;
+            margin: 10px 0;
+          }
+          
+          .date-range {
+            font-size: 14px;
+            color: #7f8c8d;
+            margin-bottom: 10px;
+          }
+          
+          .section {
+            margin-bottom: 30px;
+            page-break-inside: avoid;
+          }
+          
+          .section-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #bdc3c7;
+          }
+          
+          .summary-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+          }
+          
+          .summary-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #27ae60;
+          }
+          
+          .summary-label {
+            font-size: 12px;
+            color: #7f8c8d;
+            margin-bottom: 5px;
+          }
+          
+          .summary-value {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2c3e50;
+          }
+          
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 12px;
+          }
+          
+          table th {
+            background-color: #2c3e50;
+            color: white;
+            padding: 10px;
+            text-align: left;
+            font-weight: bold;
+          }
+          
+          table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid #e0e0e0;
+          }
+          
+          table tr:nth-child(even) {
+            background-color: #f8f9fa;
+          }
+          
+          .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #bdc3c7;
+            text-align: center;
+            font-size: 11px;
+            color: #7f8c8d;
+          }
+          
+          .highlight {
+            color: #27ae60;
+            font-weight: bold;
+          }
+          
+          .negative {
+            color: #e74c3c;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="hotel-name">BEAN HOTEL</div>
+          <div class="report-title">BÁO CÁO DOANH THU</div>
+          <div class="date-range">${dateRange}</div>
+          <div style="font-size: 11px; color: #7f8c8d;">Tạo lúc: ${currentTime}</div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">TỔNG QUAN DOANH THU</div>
+          <div class="summary-grid">
+            <div class="summary-item">
+              <div class="summary-label">Tổng Doanh thu</div>
+              <div class="summary-value highlight">${formatCurrency(totalRevenue)}đ</div>
+              <div style="font-size: 10px; color: #7f8c8d; margin-top: 5px;">Tổng số tiền thực tế thu được từ tất cả booking</div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-label">Tổng đã hoàn lại</div>
+              <div class="summary-value negative">${formatCurrency(totalRefunded)}đ</div>
+              <div style="font-size: 10px; color: #7f8c8d; margin-top: 5px;">Tổng số tiền đã hoàn lại cho khách hàng</div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-label">Doanh thu Tiền phòng</div>
+              <div class="summary-value">${formatCurrency(accommodationRevenue)}đ</div>
+              <div style="font-size: 10px; color: #7f8c8d; margin-top: 5px;">Tiền phòng thuần thu được - Chỉ booking không bị hủy</div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-label">Doanh thu Dịch vụ</div>
+              <div class="summary-value">${formatCurrency(serviceRevenue)}đ</div>
+              <div style="font-size: 10px; color: #7f8c8d; margin-top: 5px;">Tiền dịch vụ thu được - Cả prepaid và postpaid</div>
+            </div>
+            <div class="summary-item">
+              <div class="summary-label">Doanh thu Phí hủy</div>
+              <div class="summary-value">${formatCurrency(cancellationFeeRevenue)}đ</div>
+              <div style="font-size: 10px; color: #7f8c8d; margin-top: 5px;">Số tiền giữ lại từ booking bị hủy</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">PHÂN TÍCH DOANH THU</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Loại doanh thu</th>
+                <th style="text-align: right;">Giá trị (VNĐ)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Tiền phòng (Accommodation - Chỉ booking không bị hủy)</td>
+                <td style="text-align: right;">${formatCurrency(accommodationRevenue)}đ</td>
+              </tr>
+              <tr>
+                <td>Tiền dịch vụ (Services - Cả prepaid và postpaid)</td>
+                <td style="text-align: right;">${formatCurrency(serviceRevenue)}đ</td>
+              </tr>
+              <tr>
+                <td>Tiền phạt hủy phòng (Cancellation Fee - Từ booking bị hủy)</td>
+                <td style="text-align: right;">${formatCurrency(cancellationFeeRevenue)}đ</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="section">
+          <div class="section-title">DOANH THU THEO KÊNH</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Kênh</th>
+                <th style="text-align: right;">Doanh thu (VNĐ)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Online (Đặt web - Tổng doanh thu từ booking online)</td>
+                <td style="text-align: right;">${formatCurrency(onlineRevenue)}đ</td>
+              </tr>
+              <tr>
+                <td>Trực tiếp (Walk-in - Tổng doanh thu từ booking tại quầy)</td>
+                <td style="text-align: right;">${formatCurrency(walkinRevenue)}đ</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        ${revenueByDateRows ? `
+        <div class="section">
+          <div class="section-title">DOANH THU THEO NGÀY</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Ngày</th>
+                <th style="text-align: right;">Doanh thu (VNĐ)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${revenueByDateRows}
+            </tbody>
+          </table>
+        </div>
+        ` : ''}
+
+        <div class="footer">
+          <p>Báo cáo được tạo tự động bởi hệ thống Bean Hotel</p>
+          <p>Thời gian tạo: ${currentTime}</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
 }
 
 // Singleton instance
