@@ -71,7 +71,7 @@ services:
     container_name: hotel-redis
     ports:
       - "6379:6379"
-    command: ["redis-server", "--appendonly", "yes"]
+    command: ["redis-server", "--appendonly", "yes", "--replica-read-only", "no"]
     volumes:
       - redis_data:/data
 
