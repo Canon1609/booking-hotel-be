@@ -341,16 +341,16 @@ class PDFService {
             <div class="total-label">Tổng Chi phí (Subtotal):</div>
             <div class="total-amount">${parseFloat(invoiceData.subtotal || invoiceData.total || 0).toLocaleString('vi-VN')}đ</div>
           </div>
-          <div class="total-row" style="border-top: 2px solid #27ae60; padding-top: 10px; margin-top: 10px; font-size: 18px;">
-            <div class="total-label"><strong>${(invoiceData.discount && invoiceData.discount > 0) ? 'TỔNG CỘNG (Sau giảm giá)' : 'TỔNG CỘNG'}:</strong></div>
-            <div class="total-amount"><strong>${parseFloat(invoiceData.grandTotal || invoiceData.finalTotal || 0).toLocaleString('vi-VN')}đ</strong></div>
-          </div>
           ${(invoiceData.discount && invoiceData.discount > 0) ? `
             <div class="total-row" style="margin-top: 10px; color: #e74c3c;">
               <div class="total-label">Giảm giá (Mã khuyến mãi):</div>
               <div class="total-amount">-${parseFloat(invoiceData.discount).toLocaleString('vi-VN')}đ</div>
             </div>
           ` : ''}
+          <div class="total-row" style="border-top: 2px solid #27ae60; padding-top: 10px; margin-top: 10px; font-size: 18px;">
+            <div class="total-label"><strong>${(invoiceData.discount && invoiceData.discount > 0) ? 'TỔNG CỘNG (Sau giảm giá)' : 'TỔNG CỘNG'}:</strong></div>
+            <div class="total-amount"><strong>${parseFloat(invoiceData.grandTotal || invoiceData.finalTotal || 0).toLocaleString('vi-VN')}đ</strong></div>
+          </div>
           ${invoiceData.paidOnline > 0 ? `
             <div class="total-row" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
               <div class="total-label">Đã thanh toán (Online):</div>
