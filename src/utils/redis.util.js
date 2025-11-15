@@ -9,22 +9,42 @@ class RedisService {
 
   async connect() {
     try {
-      const host = process.env.REDIS_HOST || 'localhost';
-      const port = process.env.REDIS_PORT || 6379;
-      const password = process.env.REDIS_PASSWORD || undefined;
+      // Support full Redis URL or separate host/port
+      let redisUrl = process.env.REDIS_URL;
+      
+      if (!redisUrl) {
+        const host = process.env.REDIS_HOST || 'localhost';
+        const port = process.env.REDIS_PORT || 6379;
+        const password = process.env.REDIS_PASSWORD;
+        
+        // Build URL with password if provided
+        if (password) {
+          redisUrl = `redis://:${password}@${host}:${port}`;
+        } else {
+          redisUrl = `redis://${host}:${port}`;
+        }
+      }
 
-      const url = `redis://${host}:${port}`;
+      // If using managed Redis with separate read/write endpoints, prefer write endpoint
+      const writeUrl = process.env.REDIS_WRITE_URL || redisUrl;
+      
       this.client = redis.createClient({
-        url,
-        password,
+        url: writeUrl,
         socket: {
           reconnectStrategy: (retries) => Math.min(retries * 100, 3000)
         }
       });
-      console.log(`Connecting to Redis at ${url} ...`);
+      
+      // Mask password in logs
+      const logUrl = writeUrl.replace(/:[^:@]+@/, ':****@');
+      console.log(`Connecting to Redis at ${logUrl} ...`);
 
       this.client.on('error', (err) => {
         console.error('Redis Client Error:', err);
+        if (err.message && err.message.includes('READONLY')) {
+          console.error('ERROR: Connected to a read-only Redis replica. Please check your REDIS_HOST/REDIS_URL points to the master/primary instance.');
+          console.error('If using a managed Redis service, ensure you are using the primary/write endpoint, not the read replica endpoint.');
+        }
         this.isConnected = false;
       });
 
@@ -39,9 +59,32 @@ class RedisService {
       });
 
       await this.client.connect();
+      
+      // Test write capability by attempting a ping with a test key
+      try {
+        await this.client.set('__redis_write_test__', '1', { EX: 1 });
+        await this.client.del('__redis_write_test__');
+        console.log('Redis write test successful - connected to writable instance');
+      } catch (testError) {
+        if (testError.message && testError.message.includes('READONLY')) {
+          throw new Error('Redis instance is read-only. Please connect to the master/primary Redis instance, not a replica.');
+        }
+        throw testError;
+      }
     } catch (error) {
       console.error('Redis connection failed:', error.message);
+      if (error.message && error.message.includes('READONLY')) {
+        console.error('\n=== REDIS CONFIGURATION ERROR ===');
+        console.error('You are connected to a read-only Redis replica.');
+        console.error('Solutions:');
+        console.error('1. Check your REDIS_HOST/REDIS_URL environment variable');
+        console.error('2. If using managed Redis (AWS ElastiCache, Redis Cloud, etc.), use the PRIMARY/WRITE endpoint');
+        console.error('3. If using Redis replication, connect to the MASTER node, not the REPLICA');
+        console.error('4. Set REDIS_WRITE_URL if you have separate read/write endpoints');
+        console.error('===================================\n');
+      }
       this.isConnected = false;
+      throw error;
     }
   }
 
