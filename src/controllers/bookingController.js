@@ -2173,7 +2173,7 @@ exports.refundBookingAdmin = async (req, res) => {
     }
 
     // Kiểm tra xem đã có payment refund completed với số tiền tương tự chưa
-    // (tránh tạo duplicate khi đã hủy booking và tạo refund rồi)
+    // (tránh tạo duplicate khi admin đã refund rồi, nhưng cho phép refund lại nếu là payment từ hệ thống tự động)
     const existingCompletedRefund = await Payment.findOne({
       where: {
         booking_id: booking.booking_id,
@@ -2183,13 +2183,20 @@ exports.refundBookingAdmin = async (req, res) => {
       order: [['created_at', 'DESC']]
     });
 
-    // Nếu đã có payment refund completed với số tiền tương tự, không tạo mới
+    // Chỉ chặn duplicate nếu:
+    // 1. Có payment refund completed với số tiền giống nhau
+    // 2. VÀ payment đó được tạo bởi admin (transaction_id bắt đầu bằng "ADMIN-REFUND-")
+    // 3. VÀ payment đó được tạo trong vòng 5 phút gần đây (tránh duplicate click)
     if (existingCompletedRefund) {
       const existingRefundAmount = Math.abs(Number(existingCompletedRefund.amount));
       const requestedAmount = Math.abs(Number(amount));
+      const transactionId = existingCompletedRefund.transaction_id || '';
+      const isAdminRefund = transactionId.startsWith('ADMIN-REFUND-');
+      const refundCreatedAt = moment(existingCompletedRefund.created_at || existingCompletedRefund.payment_date);
+      const minutesSinceRefund = moment().diff(refundCreatedAt, 'minutes');
       
-      // Nếu số tiền giống nhau (sai số < 1 VNĐ), không tạo duplicate
-      if (Math.abs(existingRefundAmount - requestedAmount) < 1) {
+      // Chỉ chặn nếu: số tiền giống nhau VÀ là admin refund VÀ được tạo trong vòng 5 phút
+      if (Math.abs(existingRefundAmount - requestedAmount) < 1 && isAdminRefund && minutesSinceRefund < 5) {
         return res.status(200).json({
           message: 'Đã hoàn tiền rồi, không tạo duplicate',
           booking_id: booking.booking_id,
