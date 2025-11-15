@@ -20,14 +20,14 @@ exports.exportRevenueReport = async (req, res) => {
     const startDate = moment(start_date).tz('Asia/Ho_Chi_Minh').startOf('day');
     const endDate = moment(end_date).tz('Asia/Ho_Chi_Minh').endOf('day');
 
-    // Lấy tất cả booking trong khoảng thời gian
+    // Lấy tất cả booking trong khoảng thời gian (bao gồm cả cancelled để tính phí hủy)
     const bookings = await Booking.findAll({
       where: {
         created_at: {
           [Op.between]: [startDate.toDate(), endDate.toDate()]
         },
         booking_status: {
-          [Op.in]: ['confirmed', 'checked_in', 'checked_out']
+          [Op.in]: ['confirmed', 'checked_in', 'checked_out', 'cancelled']
         }
       },
       include: [
@@ -48,9 +48,32 @@ exports.exportRevenueReport = async (req, res) => {
     const revenueByDate = {}; // Lưu doanh thu theo ngày
 
     for (const booking of bookings) {
-      // Doanh thu tiền phòng
-      const accommodationAmount = parseFloat(booking.total_price || 0);
-      accommodationRevenue += accommodationAmount;
+      // Tính tổng tiền đã thanh toán (payments dương)
+      let totalPaid = 0;
+      let totalRefunded = 0;
+      
+      if (booking.payments && booking.payments.length > 0) {
+        for (const payment of booking.payments) {
+          const amount = parseFloat(payment.amount || 0);
+          if (amount > 0) {
+            totalPaid += amount;
+          } else if (amount < 0) {
+            // Payment âm là refund
+            totalRefunded += Math.abs(amount);
+          }
+        }
+      }
+      
+      // Nếu không có payment thì dùng final_price hoặc total_price
+      if (totalPaid === 0 && booking.booking_status !== 'cancelled') {
+        totalPaid = parseFloat(booking.final_price || booking.total_price || 0);
+      }
+
+      // Doanh thu tiền phòng (chỉ tính booking không bị hủy)
+      if (booking.booking_status !== 'cancelled') {
+        const accommodationAmount = parseFloat(booking.total_price || 0);
+        accommodationRevenue += accommodationAmount;
+      }
 
       // Doanh thu dịch vụ (chỉ tính các dịch vụ không bị hủy)
       if (booking.booking_services && booking.booking_services.length > 0) {
@@ -61,47 +84,45 @@ exports.exportRevenueReport = async (req, res) => {
         }
       }
 
-      // Doanh thu từ phí hủy (từ payments có amount < 0 là penalty)
-      // Tạm thời tính từ payments âm của các booking cancelled
-      if (booking.booking_status === 'cancelled' && booking.payments) {
-        for (const payment of booking.payments) {
-          if (payment.amount < 0) {
-            // Phần âm này là penalty giữ lại, không phải refund
-            // Cần logic phức tạp hơn để phân biệt penalty vs refund
-          }
+      // Doanh thu từ phí hủy (chỉ tính cho booking cancelled)
+      // Phí hủy = Số tiền đã thanh toán - Số tiền hoàn lại
+      if (booking.booking_status === 'cancelled' && totalPaid > 0) {
+        const cancellationFee = totalPaid - totalRefunded;
+        if (cancellationFee > 0) {
+          cancellationFeeRevenue += cancellationFee;
         }
       }
 
-      // Tổng doanh thu từ booking này (từ payments completed)
+      // Tổng doanh thu từ booking này = Tổng đã thanh toán - Tổng đã hoàn lại
+      // Đối với booking cancelled: doanh thu = phí hủy
+      // Đối với booking khác: doanh thu = tổng đã thanh toán - tổng đã hoàn lại
       let bookingRevenue = 0;
-      if (booking.payments && booking.payments.length > 0) {
-        for (const payment of booking.payments) {
-          if (payment.status === 'completed' && payment.amount > 0) {
-            bookingRevenue += parseFloat(payment.amount);
-          }
-        }
-      }
-      
-      // Nếu không có payment thì dùng final_price hoặc total_price
-      if (bookingRevenue === 0) {
-        bookingRevenue = parseFloat(booking.final_price || booking.total_price || 0);
-      }
-
-      totalRevenue += bookingRevenue;
-
-      // Phân loại theo kênh
-      if (booking.booking_type === 'online') {
-        onlineRevenue += bookingRevenue;
+      if (booking.booking_status === 'cancelled') {
+        // Doanh thu từ booking cancelled = phí hủy
+        bookingRevenue = totalPaid - totalRefunded;
       } else {
-        walkinRevenue += bookingRevenue;
+        // Doanh thu từ booking bình thường = tổng đã thanh toán - tổng đã hoàn lại
+        bookingRevenue = totalPaid - totalRefunded;
       }
 
-      // Lưu theo ngày
-      const bookingDate = moment(booking.created_at).format('YYYY-MM-DD');
-      if (!revenueByDate[bookingDate]) {
-        revenueByDate[bookingDate] = 0;
+      // Chỉ tính doanh thu dương
+      if (bookingRevenue > 0) {
+        totalRevenue += bookingRevenue;
+
+        // Phân loại theo kênh
+        if (booking.booking_type === 'online') {
+          onlineRevenue += bookingRevenue;
+        } else {
+          walkinRevenue += bookingRevenue;
+        }
+
+        // Lưu theo ngày
+        const bookingDate = moment(booking.created_at).format('YYYY-MM-DD');
+        if (!revenueByDate[bookingDate]) {
+          revenueByDate[bookingDate] = 0;
+        }
+        revenueByDate[bookingDate] += bookingRevenue;
       }
-      revenueByDate[bookingDate] += bookingRevenue;
     }
 
     // Tạo Excel
