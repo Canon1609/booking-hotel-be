@@ -424,8 +424,13 @@ exports.addServiceToTempBooking = async (req, res) => {
     const prepaidServices = tempBooking.services.filter(s => s.payment_type === 'prepaid');
     const prepaidTotal = prepaidServices.reduce((sum, s) => sum + (s.total_price || 0), 0);
     
-    const roomTotal = (typeof tempBooking.room_price === 'string' ? parseFloat(tempBooking.room_price) : tempBooking.room_price) * tempBooking.nights;
-    tempBooking.total_price = roomTotal + prepaidTotal;
+    // Tính tiền phòng thuần (không bao gồm dịch vụ)
+    const numRooms = tempBooking.num_rooms || 1;
+    const roomTotal = (typeof tempBooking.room_price === 'string' ? parseFloat(tempBooking.room_price) : tempBooking.room_price) * tempBooking.nights * numRooms;
+    
+    // Lưu riêng tiền phòng thuần và tổng tiền (để tính final_amount)
+    tempBooking.room_total_price = roomTotal; // Tiền phòng thuần
+    tempBooking.total_price = roomTotal; // booking.total_price chỉ lưu tiền phòng thuần
     tempBooking.prepaid_services_total = prepaidTotal;
 
     // Lưu lại vào Redis
@@ -458,8 +463,13 @@ exports.createPaymentLink = async (req, res) => {
       return res.status(404).json({ message: 'Booking tạm thời không tồn tại hoặc đã hết hạn' });
     }
 
+    // Tính tổng tiền cần thanh toán (tiền phòng + dịch vụ prepaid)
+    const roomTotal = tempBooking.total_price || 0; // Tiền phòng thuần
+    const prepaidTotal = tempBooking.prepaid_services_total || 0; // Tổng dịch vụ prepaid
+    const subtotalBeforeDiscount = roomTotal + prepaidTotal; // Tổng trước giảm giá
+    
     // Áp dụng promotion nếu có
-    let finalAmount = tempBooking.total_price;
+    let finalAmount = subtotalBeforeDiscount;
     let discountAmount = 0;
     let promotion = null;
 
@@ -479,11 +489,11 @@ exports.createPaymentLink = async (req, res) => {
       if (promotionResult) {
         promotion = promotionResult;
         if (promotionResult.discount_type === 'percentage') {
-          discountAmount = (finalAmount * promotionResult.amount) / 100;
+          discountAmount = (subtotalBeforeDiscount * promotionResult.amount) / 100;
         } else {
           discountAmount = promotionResult.amount;
         }
-        finalAmount = Math.max(0, finalAmount - discountAmount);
+        finalAmount = Math.max(0, subtotalBeforeDiscount - discountAmount);
       }
     }
 
@@ -2358,10 +2368,11 @@ exports.generateInvoicePDF = async (req, res) => {
     };
 
     // 1. Tiền phòng (Accommodation)
+    // booking.total_price đã chỉ chứa tiền phòng thuần (không bao gồm dịch vụ prepaid)
     const nights = moment(booking.check_out_date).diff(moment(booking.check_in_date), 'days');
     const numRooms = booking.booking_rooms?.length || 1;
-    const roomPricePerNight = parseFloat(booking.total_price || 0) / (nights * numRooms);
     const accommodationTotal = parseFloat(booking.total_price || 0);
+    const roomPricePerNight = numRooms > 0 && nights > 0 ? accommodationTotal / (nights * numRooms) : 0;
     
     invoiceData.items.push({
       name: `Tiền phòng (Accommodation) - ${booking.room_type?.room_type_name || 'N/A'}`,
@@ -2531,10 +2542,11 @@ exports.viewInvoice = async (req, res) => {
     };
 
     // 1. Tiền phòng (Accommodation)
+    // booking.total_price đã chỉ chứa tiền phòng thuần (không bao gồm dịch vụ prepaid)
     const nights = moment(booking.check_out_date).diff(moment(booking.check_in_date), 'days');
     const numRooms = booking.booking_rooms?.length || 1;
-    const roomPricePerNight = parseFloat(booking.total_price || 0) / (nights * numRooms);
     const accommodationTotal = parseFloat(booking.total_price || 0);
+    const roomPricePerNight = numRooms > 0 && nights > 0 ? accommodationTotal / (nights * numRooms) : 0;
     
     invoiceData.items.push({
       name: `Tiền phòng (Accommodation) - ${booking.room_type?.room_type_name || 'N/A'}`,
