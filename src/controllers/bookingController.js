@@ -2370,9 +2370,7 @@ exports.generateInvoicePDF = async (req, res) => {
       total: accommodationTotal
     });
 
-    // 2. Dịch vụ (Services) - Hiển thị tất cả dịch vụ để khách hàng thấy đầy đủ
-    // Nhưng khi tính amountDue, chỉ tính dịch vụ postpaid (chưa trả) vào grandTotal
-    let postpaidServicesTotal = 0; // Tổng dịch vụ postpaid (chưa trả)
+    // 2. Dịch vụ (Services) - Hiển thị tất cả dịch vụ (cả prepaid và postpaid)
     if (booking.booking_services && booking.booking_services.length > 0) {
       for (const bookingService of booking.booking_services) {
         const serviceName = bookingService.service?.name || 'Dịch vụ';
@@ -2386,11 +2384,6 @@ exports.generateInvoicePDF = async (req, res) => {
           unitPrice: parseFloat(bookingService.unit_price || 0),
           total: serviceTotal
         });
-        
-        // Chỉ tính dịch vụ postpaid (chưa trả) vào tổng cần thanh toán
-        if (paymentType === 'postpaid') {
-          postpaidServicesTotal += serviceTotal;
-        }
       }
     }
 
@@ -2398,7 +2391,7 @@ exports.generateInvoicePDF = async (req, res) => {
     // TODO: Thêm logic tính phụ thu check-out muộn nếu có
     // Tạm thời để trống, có thể bổ sung sau
 
-    // Tính tổng chi phí (Subtotal) - Tổng tất cả để hiển thị đầy đủ
+    // Tính tổng chi phí (Subtotal) - Tổng tất cả (phòng + tất cả dịch vụ)
     invoiceData.subtotal = invoiceData.items.reduce((sum, item) => sum + parseFloat(item.total || 0), 0);
     
     // Áp dụng giảm giá nếu có (áp dụng trên tổng subtotal)
@@ -2413,11 +2406,9 @@ exports.generateInvoicePDF = async (req, res) => {
       }
     }
 
-    // Tính tổng cộng (Grand Total) - Chỉ tính phần cần thanh toán:
-    // = Tiền phòng + Dịch vụ postpaid (chưa trả) - Giảm giá
-    // KHÔNG tính dịch vụ prepaid (đã trả) vào grandTotal vì đã thanh toán rồi
-    const accommodationAndPostpaidTotal = accommodationTotal + postpaidServicesTotal;
-    const subtotalAfterDiscount = accommodationAndPostpaidTotal - invoiceData.discount;
+    // Tính tổng cộng (Grand Total) = Subtotal - Discount
+    // GrandTotal bao gồm tất cả: phòng + dịch vụ prepaid + dịch vụ postpaid
+    const subtotalAfterDiscount = invoiceData.subtotal - invoiceData.discount;
     invoiceData.grandTotal = subtotalAfterDiscount;
 
     // Tính toán thanh toán online và hoàn tiền từ bảng Payment
@@ -2552,9 +2543,7 @@ exports.viewInvoice = async (req, res) => {
       total: accommodationTotal
     });
 
-    // 2. Dịch vụ (Services) - Hiển thị tất cả dịch vụ để khách hàng thấy đầy đủ
-    // Nhưng khi tính amountDue, chỉ tính dịch vụ postpaid (chưa trả) vào grandTotal
-    let postpaidServicesTotal = 0; // Tổng dịch vụ postpaid (chưa trả)
+    // 2. Dịch vụ (Services) - Hiển thị tất cả dịch vụ (cả prepaid và postpaid)
     if (booking.booking_services && booking.booking_services.length > 0) {
       for (const bookingService of booking.booking_services) {
         const serviceName = bookingService.service?.name || 'Dịch vụ';
@@ -2568,15 +2557,10 @@ exports.viewInvoice = async (req, res) => {
           unitPrice: parseFloat(bookingService.unit_price || 0),
           total: serviceTotal
         });
-        
-        // Chỉ tính dịch vụ postpaid (chưa trả) vào tổng cần thanh toán
-        if (paymentType === 'postpaid') {
-          postpaidServicesTotal += serviceTotal;
-        }
       }
     }
 
-    // Tính tổng chi phí (Subtotal) - Tổng tất cả để hiển thị đầy đủ
+    // Tính tổng chi phí (Subtotal) - Tổng tất cả (phòng + tất cả dịch vụ)
     invoiceData.subtotal = invoiceData.items.reduce((sum, item) => sum + parseFloat(item.total || 0), 0);
     
     // Áp dụng giảm giá nếu có (áp dụng trên tổng subtotal)
@@ -2591,11 +2575,9 @@ exports.viewInvoice = async (req, res) => {
       }
     }
 
-    // Tính tổng cộng (Grand Total) - Chỉ tính phần cần thanh toán:
-    // = Tiền phòng + Dịch vụ postpaid (chưa trả) - Giảm giá
-    // KHÔNG tính dịch vụ prepaid (đã trả) vào grandTotal vì đã thanh toán rồi
-    const accommodationAndPostpaidTotal = accommodationTotal + postpaidServicesTotal;
-    const subtotalAfterDiscount = accommodationAndPostpaidTotal - invoiceData.discount;
+    // Tính tổng cộng (Grand Total) = Subtotal - Discount
+    // GrandTotal bao gồm tất cả: phòng + dịch vụ prepaid + dịch vụ postpaid
+    const subtotalAfterDiscount = invoiceData.subtotal - invoiceData.discount;
     invoiceData.grandTotal = subtotalAfterDiscount;
 
     // Tính toán thanh toán online và hoàn tiền từ bảng Payment
