@@ -125,6 +125,34 @@ class RedisService {
     }
   }
 
+  // Đảm bảo Redis đã kết nối, tự động reconnect nếu cần
+  async ensureConnected() {
+    if (this.isConnected && this.client) {
+      // Test connection với ping
+      try {
+        await this.client.ping();
+        return true;
+      } catch (error) {
+        // Connection lost, reset flag
+        this.isConnected = false;
+      }
+    }
+
+    // Nếu chưa connected, thử connect lại
+    if (!this.isConnected) {
+      try {
+        console.log('[Redis] Attempting to reconnect...');
+        await this.connect(3, 1000); // 3 retries, 1s delay
+        return true;
+      } catch (error) {
+        console.error('[Redis] Reconnection failed:', error.message);
+        throw new Error('Redis connection unavailable. Please check Redis service.');
+      }
+    }
+
+    return true;
+  }
+
   // Tạo key cho booking tạm thời
   generateTempBookingKey(userId, roomId, checkIn, checkOut) {
     const timestamp = moment().tz('Asia/Ho_Chi_Minh').format('YYYYMMDDHHmmss');
@@ -134,9 +162,8 @@ class RedisService {
   // Lưu booking tạm thời vào Redis (TTL: 30 phút)
   async saveTempBooking(key, bookingData) {
     try {
-      if (!this.isConnected) {
-        throw new Error('Redis not connected');
-      }
+      // Đảm bảo Redis đã kết nối
+      await this.ensureConnected();
 
       const data = {
         ...bookingData,
@@ -155,9 +182,8 @@ class RedisService {
   // Lấy booking tạm thời từ Redis
   async getTempBooking(key) {
     try {
-      if (!this.isConnected) {
-        throw new Error('Redis not connected');
-      }
+      // Đảm bảo Redis đã kết nối
+      await this.ensureConnected();
 
       const data = await this.client.get(key);
       return data ? JSON.parse(data) : null;
@@ -170,9 +196,8 @@ class RedisService {
   // Xóa booking tạm thời khỏi Redis
   async deleteTempBooking(key) {
     try {
-      if (!this.isConnected) {
-        throw new Error('Redis not connected');
-      }
+      // Đảm bảo Redis đã kết nối
+      await this.ensureConnected();
 
       await this.client.del(key);
       return true;
@@ -185,9 +210,8 @@ class RedisService {
   // Kiểm tra booking tạm thời có tồn tại không
   async existsTempBooking(key) {
     try {
-      if (!this.isConnected) {
-        return false;
-      }
+      // Đảm bảo Redis đã kết nối
+      await this.ensureConnected();
 
       const exists = await this.client.exists(key);
       return exists === 1;
@@ -200,9 +224,8 @@ class RedisService {
   // Gia hạn TTL cho booking tạm thời (thêm 30 phút)
   async extendTempBookingTTL(key) {
     try {
-      if (!this.isConnected) {
-        throw new Error('Redis not connected');
-      }
+      // Đảm bảo Redis đã kết nối
+      await this.ensureConnected();
 
       await this.client.expire(key, 1800); // 30 phút
       return true;
@@ -215,9 +238,8 @@ class RedisService {
   // Lấy tất cả keys booking tạm thời của user
   async getUserTempBookings(userId) {
     try {
-      if (!this.isConnected) {
-        return [];
-      }
+      // Đảm bảo Redis đã kết nối
+      await this.ensureConnected();
 
       const pattern = `temp_booking:${userId}:*`;
       const keys = await this.client.keys(pattern);
@@ -240,9 +262,8 @@ class RedisService {
   // Xóa tất cả booking tạm thời của user
   async clearUserTempBookings(userId) {
     try {
-      if (!this.isConnected) {
-        return false;
-      }
+      // Đảm bảo Redis đã kết nối
+      await this.ensureConnected();
 
       const pattern = `temp_booking:${userId}:*`;
       const keys = await this.client.keys(pattern);
@@ -261,9 +282,8 @@ class RedisService {
   // Lấy tất cả booking tạm thời (để tìm theo orderCode)
   async getAllTempBookings() {
     try {
-      if (!this.isConnected) {
-        return {};
-      }
+      // Đảm bảo Redis đã kết nối
+      await this.ensureConnected();
 
       const pattern = `temp_booking:*`;
       const keys = await this.client.keys(pattern);
@@ -286,9 +306,8 @@ class RedisService {
   // Lưu ánh xạ orderCode -> temp_booking_key (TTL 30 phút)
   async mapOrderCodeToTempKey(orderCode, tempKey) {
     try {
-      if (!this.isConnected) {
-        throw new Error('Redis not connected');
-      }
+      // Đảm bảo Redis đã kết nối
+      await this.ensureConnected();
       const key = `payos_order:${orderCode}`;
       await this.client.setEx(key, 1800, tempKey); // 30 phút
       console.log(`[REDIS] mapOrderCodeToTempKey saved: ${key} -> ${tempKey}`);
@@ -302,9 +321,8 @@ class RedisService {
   // Lấy temp_booking_key theo orderCode
   async getTempKeyByOrderCode(orderCode) {
     try {
-      if (!this.isConnected) {
-        return null;
-      }
+      // Đảm bảo Redis đã kết nối
+      await this.ensureConnected();
       const key = `payos_order:${orderCode}`;
       const tempKey = await this.client.get(key);
       console.log(`[REDIS] getTempKeyByOrderCode: ${key} -> ${tempKey || 'null'}`);
@@ -318,9 +336,8 @@ class RedisService {
   // Xóa ánh xạ orderCode -> temp_booking_key (sau khi đã insert DB)
   async deleteOrderCodeMap(orderCode) {
     try {
-      if (!this.isConnected) {
-        return false;
-      }
+      // Đảm bảo Redis đã kết nối
+      await this.ensureConnected();
       const key = `payos_order:${orderCode}`;
       await this.client.del(key);
       console.log(`[REDIS] deleteOrderCodeMap: deleted ${key}`);
