@@ -287,6 +287,187 @@ exports.exportRevenueReport = async (req, res) => {
   }
 };
 
+// 1.2. Xuất báo cáo doanh thu PDF
+exports.exportRevenueReportPDF = async (req, res) => {
+  try {
+    const { start_date, end_date } = req.query;
+    
+    if (!start_date || !end_date) {
+      return res.status(400).json({ 
+        message: 'Vui lòng cung cấp start_date và end_date (format: YYYY-MM-DD)' 
+      });
+    }
+
+    const startDate = moment(start_date).tz('Asia/Ho_Chi_Minh').startOf('day');
+    const endDate = moment(end_date).tz('Asia/Ho_Chi_Minh').endOf('day');
+
+    // Lấy tất cả booking trong khoảng thời gian (bao gồm cả cancelled để tính phí hủy)
+    const bookings = await Booking.findAll({
+      where: {
+        created_at: {
+          [Op.between]: [startDate.toDate(), endDate.toDate()]
+        },
+        booking_status: {
+          [Op.in]: ['confirmed', 'checked_in', 'checked_out', 'cancelled']
+        }
+      },
+      include: [
+        { model: RoomType, as: 'room_type' },
+        { model: BookingService, as: 'booking_services', include: [{ model: Service, as: 'service' }] },
+        { model: Payment, as: 'payments', where: { status: 'completed' }, required: false }
+      ]
+    });
+
+    // Tính toán doanh thu (sử dụng lại logic từ exportRevenueReport)
+    let totalRevenue = 0; // Tổng doanh thu thực tế thu được
+    let totalRefunded = 0; // Tổng tiền đã hoàn lại
+    let accommodationRevenue = 0; // Tiền phòng thu được (chỉ booking không cancelled)
+    let serviceRevenue = 0; // Tiền dịch vụ thu được (chỉ booking không cancelled)
+    let cancellationFeeRevenue = 0; // Phí hủy (từ booking cancelled)
+    let onlineRevenue = 0; // Doanh thu từ booking online
+    let walkinRevenue = 0; // Doanh thu từ booking walk-in
+
+    const revenueByDate = {}; // Lưu doanh thu theo ngày
+
+    for (const booking of bookings) {
+      // Tính tổng tiền đã thanh toán (payments dương) và đã hoàn lại (payments âm) cho booking này
+      let bookingPaid = 0; // Tổng tiền đã thanh toán cho booking này
+      let bookingRefunded = 0; // Tổng tiền đã hoàn lại cho booking này
+      
+      if (booking.payments && booking.payments.length > 0) {
+        for (const payment of booking.payments) {
+          const amount = parseFloat(payment.amount || 0);
+          if (amount > 0) {
+            bookingPaid += amount;
+          } else if (amount < 0) {
+            // Payment âm là refund (hoàn tiền)
+            bookingRefunded += Math.abs(amount);
+          }
+        }
+      }
+      
+      // Cộng vào tổng đã hoàn lại toàn hệ thống
+      totalRefunded += bookingRefunded;
+      
+      // Tính tổng tiền dịch vụ (cả prepaid và postpaid)
+      let totalServicesAmount = 0;
+      let postpaidServicesAmount = 0; // Dịch vụ postpaid (thêm tại khách sạn, thanh toán tiền mặt)
+      if (booking.booking_services && booking.booking_services.length > 0) {
+        for (const bs of booking.booking_services) {
+          if (bs.status !== 'cancelled') {
+            const serviceAmount = parseFloat(bs.total_price || 0);
+            totalServicesAmount += serviceAmount;
+            // Dịch vụ postpaid không có payment record (thanh toán tiền mặt khi checkout)
+            if (bs.payment_type === 'postpaid') {
+              postpaidServicesAmount += serviceAmount;
+            }
+          }
+        }
+      }
+      
+      // ========== TÍNH DOANH THU THEO TỪNG LOẠI ==========
+      
+      if (booking.booking_status === 'cancelled') {
+        // ========== BOOKING BỊ HỦY: CHỈ TÍNH PHÍ HỦY ==========
+        const cancellationFee = bookingPaid - bookingRefunded;
+        if (cancellationFee > 0) {
+          cancellationFeeRevenue += cancellationFee;
+          totalRevenue += cancellationFee;
+          
+          // Phân loại theo kênh
+          if (booking.booking_type === 'online') {
+            onlineRevenue += cancellationFee;
+          } else {
+            walkinRevenue += cancellationFee;
+          }
+          
+          // Lưu theo ngày
+          const bookingDate = moment(booking.created_at).format('YYYY-MM-DD');
+          if (!revenueByDate[bookingDate]) {
+            revenueByDate[bookingDate] = 0;
+          }
+          revenueByDate[bookingDate] += cancellationFee;
+        }
+      } else {
+        // ========== BOOKING KHÔNG BỊ HỦY: TÍNH DOANH THU BÌNH THƯỜNG ==========
+        
+        // Tính tổng tiền thực tế thu được từ booking này
+        let bookingTotalPaid = bookingPaid; // Từ payments
+        
+        // Nếu không có payment record (walk-in hoặc booking cũ) thì tính từ booking + dịch vụ
+        if (bookingTotalPaid === 0) {
+          // Tính tổng: tiền phòng + dịch vụ (cả prepaid và postpaid)
+          const roomAmount = parseFloat(booking.total_price || 0);
+          bookingTotalPaid = roomAmount + totalServicesAmount;
+        } else {
+          // Nếu có payment record, có thể chưa bao gồm dịch vụ postpaid
+          // Payment record chỉ bao gồm: tiền phòng + dịch vụ prepaid - discount
+          // Cần cộng thêm dịch vụ postpaid (thanh toán tiền mặt, không có payment record)
+          bookingTotalPaid = bookingTotalPaid + postpaidServicesAmount;
+        }
+        
+        // 1. Doanh thu tiền phòng (Accommodation Revenue)
+        const accommodationAmount = parseFloat(booking.total_price || 0);
+        accommodationRevenue += accommodationAmount;
+
+        // 2. Doanh thu dịch vụ (Service Revenue)
+        if (booking.booking_services && booking.booking_services.length > 0) {
+          for (const bs of booking.booking_services) {
+            if (bs.status !== 'cancelled') {
+              serviceRevenue += parseFloat(bs.total_price || 0);
+            }
+          }
+        }
+
+        // 3. Tổng doanh thu từ booking này (số tiền thực tế thu được)
+        const bookingRevenue = bookingTotalPaid - bookingRefunded;
+        
+        if (bookingRevenue > 0) {
+          totalRevenue += bookingRevenue;
+
+          // Phân loại theo kênh
+          if (booking.booking_type === 'online') {
+            onlineRevenue += bookingRevenue;
+          } else {
+            walkinRevenue += bookingRevenue;
+          }
+
+          // Lưu theo ngày
+          const bookingDate = moment(booking.created_at).format('YYYY-MM-DD');
+          if (!revenueByDate[bookingDate]) {
+            revenueByDate[bookingDate] = 0;
+          }
+          revenueByDate[bookingDate] += bookingRevenue;
+        }
+      }
+    }
+
+    // Tạo PDF
+    const reportData = {
+      startDate,
+      endDate,
+      totalRevenue,
+      totalRefunded,
+      accommodationRevenue,
+      serviceRevenue,
+      cancellationFeeRevenue,
+      onlineRevenue,
+      walkinRevenue,
+      revenueByDate
+    };
+
+    const pdfBuffer = await pdfService.generateRevenueReportPDF(reportData);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="bao-cao-doanh-thu-${startDate.format('YYYY-MM-DD')}-${endDate.format('YYYY-MM-DD')}.pdf"`);
+    res.send(pdfBuffer);
+
+  } catch (error) {
+    console.error('Error exporting revenue report PDF:', error);
+    return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+  }
+};
+
 // ========== 2. BÁO CÁO CÔNG SUẤT PHÒNG (OCCUPANCY REPORTS) - EXCEL ==========
 
 // 2.1. Xuất báo cáo công suất phòng
