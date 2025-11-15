@@ -115,9 +115,15 @@ app.use((err, req, res, next) => {
 });
 
 // Khởi tạo các service khác (không bao gồm database)
-// Note: Redis connection is now handled in server.js before server starts
 (async () => {
   try {
+    // Khởi tạo Redis (tạm thời tắt để test)
+    try {
+      await redisService.connect();
+    } catch (error) {
+      console.warn('Redis not available, continuing without Redis...');
+    }
+    
     // Khởi tạo PayOS
     try {
       await payOSService.initialize();
