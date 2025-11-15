@@ -151,7 +151,19 @@ async function startServer() {
     // 2. Đồng bộ hóa database
     await syncDatabase();
     
-    // 3. Khởi động server
+    // 3. Kết nối Redis trước khi start server
+    const redisService = require('./utils/redis.util');
+    try {
+      console.log('🔌 Connecting to Redis...');
+      await redisService.connect(5, 2000); // 5 retries, start with 2s delay
+      console.log('✅ Redis connected successfully');
+    } catch (error) {
+      console.error('❌ Redis connection failed:', error.message);
+      console.error('⚠️  Server will start but Redis features will be unavailable');
+      // Continue anyway - Redis is optional for some features
+    }
+    
+    // 4. Khởi động server
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 Database: ${process.env.DB_NAME || 'hotel_booking'}`);
