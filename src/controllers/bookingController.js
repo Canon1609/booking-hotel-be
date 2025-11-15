@@ -508,7 +508,7 @@ exports.createPaymentLink = async (req, res) => {
     const paymentData = {
       orderCode,
       amount: finalAmount,
-      description: `Thanh toán đặt phòng khách sạn Bean Hotel`,
+      description: `Thanh toan dat phong`,
       items: [
         {
           name: `Phòng ${tempBooking.room_type_name} (${num_rooms} phòng)`,
