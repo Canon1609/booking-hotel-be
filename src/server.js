@@ -151,16 +151,30 @@ async function startServer() {
     // 2. Đồng bộ hóa database
     await syncDatabase();
     
-    // 3. Kết nối Redis trước khi start server
+    // 3. Kết nối Redis trước khi start server (BẮT BUỘC cho temp booking)
     const redisService = require('./utils/redis.util');
+    console.log('🔌 Connecting to Redis...');
     try {
-      console.log('🔌 Connecting to Redis...');
-      await redisService.connect(5, 2000); // 5 retries, start with 2s delay
+      await redisService.connect(10, 2000); // 10 retries, start with 2s delay (tăng retry cho VPS)
       console.log('✅ Redis connected successfully');
     } catch (error) {
-      console.error('❌ Redis connection failed:', error.message);
-      console.error('⚠️  Server will start but Redis features will be unavailable');
-      // Continue anyway - Redis is optional for some features
+      console.error('❌ Redis connection failed after all retries:', error.message);
+      console.error('⚠️  Redis is required for temp booking feature');
+      console.error('💡 Please check:');
+      console.error('   1. Redis container is running: docker ps | grep redis');
+      console.error('   2. REDIS_HOST environment variable is correct');
+      console.error('   3. Network connectivity between app and redis containers');
+      console.error('🔄 Retrying connection in 5 seconds...');
+      
+      // Thử lại một lần nữa sau 5 giây
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      try {
+        await redisService.connect(5, 2000);
+        console.log('✅ Redis connected on retry');
+      } catch (retryError) {
+        console.error('❌ Redis connection failed on retry. Server will start but temp booking will fail.');
+        console.error('⚠️  Please restart Redis service and restart the app container');
+      }
     }
     
     // 4. Khởi động server
