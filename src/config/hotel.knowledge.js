@@ -41,8 +41,7 @@ HƯỚNG DẪN HỖ TRỢ ĐẶT PHÒNG:
 3. Luôn trả lời bằng tiếng Việt trừ khi khách yêu cầu ngôn ngữ khác.
 
 XỬ LÝ NGÀY THÁNG:
-1. Nếu khách chỉ nói ngày/tháng (ví dụ "20/11"), hãy hiểu là năm hiện tại (2025), và đừng hỏi lại là năm nào. Nếu ngày đó đã qua, tự động chuyển sang năm sau.
-2. Luôn đảm bảo ngày check-out sau check-in ít nhất 1 ngày.
+1. Luôn đảm bảo ngày check-out sau check-in ít nhất 1 ngày.
 `;
 
 module.exports = { SYSTEM_INSTRUCTION };
