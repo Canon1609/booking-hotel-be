@@ -101,7 +101,7 @@ exports.getAllUsers = async (req, res) => {
 
     const users = await User.findAndCountAll({
       where: whereClause,
-      attributes: ['user_id', 'full_name', 'email', 'phone', 'date_of_birth', 'role', 'is_verified', 'created_at', 'updated_at'],
+      attributes: ['user_id', 'full_name', 'email', 'phone', 'cccd', 'date_of_birth', 'role', 'is_verified', 'created_at', 'updated_at'],
       limit: parseInt(limit),
       offset: parseInt(offset),
       order: [['created_at', 'DESC']]
@@ -129,7 +129,7 @@ exports.getUserById = async (req, res) => {
 
     const user = await User.findOne({
       where: { user_id: id },
-      attributes: ['user_id', 'full_name', 'email', 'phone', 'date_of_birth', 'role', 'is_verified', 'created_at', 'updated_at']
+      attributes: ['user_id', 'full_name', 'email', 'phone', 'cccd', 'date_of_birth', 'role', 'is_verified', 'created_at', 'updated_at']
     });
 
     if (!user) {
@@ -167,7 +167,8 @@ exports.createUser = async (req, res) => {
       phone,
       date_of_birth,
       password_hashed,
-      role
+      role,
+      is_verified: true
     });
 
     // Gửi email xác nhận cho user mới
@@ -239,6 +240,7 @@ exports.createUser = async (req, res) => {
         full_name: newUser.full_name,
         email: newUser.email,
         phone: newUser.phone,
+        cccd: newUser.cccd,
         date_of_birth: newUser.date_of_birth,
         role: newUser.role,
         is_verified: newUser.is_verified,
@@ -286,6 +288,7 @@ exports.updateUser = async (req, res) => {
         full_name: user.full_name,
         email: user.email,
         phone: user.phone,
+        cccd: user.cccd,
         date_of_birth: user.date_of_birth,
         role: user.role,
         is_verified: user.is_verified,
@@ -328,7 +331,7 @@ exports.searchUserByEmail = async (req, res) => {
       where: {
         email: { [Op.like]: `%${email}%` }
       },
-      attributes: ['user_id', 'full_name', 'email', 'phone', 'date_of_birth', 'role', 'is_verified', 'created_at'],
+      attributes: ['user_id', 'full_name', 'email', 'phone', 'cccd', 'date_of_birth', 'role', 'is_verified', 'created_at'],
       order: [['created_at', 'DESC']]
     });
 
