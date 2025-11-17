@@ -4,6 +4,7 @@ const axios = require('axios');
 const moment = require('moment-timezone');
 const { generateOpenAPISpec, convertToGeminiFunctions } = require('./openapi.generator');
 const { SERVER_URL, INTERNAL_API_URL } = require('../config/config');
+const { SYSTEM_INSTRUCTION } = require('../config/hotel.knowledge');
 const { ChatSession, User } = require('../models');
 const { verifyToken } = require('../utils/jwt.util');
 
@@ -12,7 +13,10 @@ const router = express.Router();
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const MODEL_NAME = process.env.GEMINI_MODEL_NAME || 'gemini-2.0-flash-exp';
-const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+const model = genAI.getGenerativeModel({
+  model: MODEL_NAME,
+  systemInstruction: SYSTEM_INSTRUCTION
+});
 
 console.log(`✅ Gemini model configured: ${MODEL_NAME}`);
 console.log(`🌐 SERVER_URL for chatbot API calls: ${SERVER_URL || 'http://localhost:5000'}`);
@@ -770,37 +774,6 @@ router.post('/chat', async (req, res) => {
       parts: [{ text: msg.text || msg.content }]
     }));
 
-    // System instruction for Gemini
-    const systemInstruction = `Bạn là trợ lý AI thông minh cho hệ thống đặt phòng khách sạn. Nhiệm vụ của bạn:
-
-1. **QUAN TRỌNG - Khi người dùng yêu cầu tìm phòng, tra cứu thông tin, hoặc đặt phòng:**
-   - BẮT BUỘC phải sử dụng các function tools có sẵn để lấy dữ liệu chính xác từ hệ thống
-   - KHÔNG được chỉ hỏi lại người dùng mà không gọi function
-   - Ví dụ: Khi người dùng nói "tôi cần phòng vào ngày 20/11", bạn PHẢI gọi function apiRoomsAvailabilitySearch với check_in và check_out tương ứng
-   - Ví dụ: Khi người dùng nói "tra cứu mã đặt phòng ABC123", bạn PHẢI gọi function tương ứng để tra cứu
-   - Sau khi có kết quả từ function, hãy trình bày thông tin một cách chi tiết, rõ ràng và thân thiện bằng tiếng Việt
-   - Nếu function trả về lỗi với message "Bạn cần đăng nhập", hãy thông báo cho người dùng: "Để tra cứu thông tin đặt phòng, bạn cần đăng nhập trước. Sau khi đăng nhập, tôi sẽ có thể truy cập thông tin chi tiết về đặt phòng của bạn. Bạn muốn đăng nhập ngay bây giờ không?"
-   - Nếu function trả về lỗi khác, hãy thông báo lỗi và đề xuất giải pháp
-
-2. **Khi là câu hỏi chung, không cần dữ liệu từ hệ thống** (như hỏi về du lịch, ăn uống, địa điểm, lời khuyên):
-   - Trả lời trực tiếp bằng kiến thức của bạn
-   - Trả lời một cách thân thiện, hữu ích bằng tiếng Việt
-   - Bạn có thể đưa ra lời khuyên, gợi ý về du lịch, ăn uống, văn hóa địa phương
-
-3. **Luôn trả lời bằng tiếng Việt**, trừ khi người dùng yêu cầu ngôn ngữ khác.
-
-4. **Xử lý ngày tháng:**
-   - Khi người dùng nói "tới đây" hoặc chỉ nói ngày/tháng (ví dụ: "20/11"), hãy hiểu là năm hiện tại (${new Date().getFullYear()})
-   - Nếu ngày đã qua trong năm hiện tại, tự động dùng năm tiếp theo
-   - Ví dụ: Hôm nay là tháng 12/${new Date().getFullYear()}, "20/11 tới đây" = ${new Date().getFullYear() + 1}-11-20
-   - Luôn đảm bảo check_out sau check_in ít nhất 1 ngày
-
-5. **Nguyên tắc hoạt động:**
-   - Ưu tiên gọi function để lấy dữ liệu thực tế từ hệ thống
-   - Chỉ hỏi lại người dùng khi thực sự thiếu thông tin bắt buộc (như số lượng khách, loại phòng cụ thể)
-   - Khi đã có đủ thông tin từ câu hỏi của người dùng, hãy gọi function ngay lập tức
-   - Khi function yêu cầu authentication, hãy giải thích rõ ràng cho người dùng biết họ cần đăng nhập`;
-
     // Get tools based on authentication status
     const tools = getToolsForUser(isAuthenticated);
     const toolConfig = createToolConfig(MODEL_NAME);
@@ -811,26 +784,8 @@ router.post('/chat', async (req, res) => {
     
     console.log(`🔧 Starting chat with ${totalTools} available tools (${isAuthenticated ? 'authenticated' : 'public'})`);
     
-    // Update system instruction if user is authenticated
-    let finalSystemInstruction = systemInstruction;
-    if (isAuthenticated) {
-      finalSystemInstruction += `\n\n5. **User đã đăng nhập**: Bạn có thể giúp user tra cứu booking của chính họ, xem lịch sử đặt phòng, và các thông tin cá nhân khác.`;
-    }
-    
     const chat = model.startChat({
-      history: [
-        {
-          role: 'user',
-          parts: [{ text: finalSystemInstruction }]
-        },
-        {
-          role: 'model',
-          parts: [{ text: isAuthenticated 
-            ? 'Tôi hiểu rồi. Tôi sẽ giúp bạn với các câu hỏi về đặt phòng, tra cứu booking của bạn, và các câu hỏi chung khác.'
-            : 'Tôi hiểu rồi. Tôi sẽ giúp bạn với các câu hỏi về đặt phòng và các câu hỏi chung khác. Bạn có thể đăng nhập để tra cứu booking của mình.' }]
-        },
-        ...chatHistory
-      ],
+      history: chatHistory,
       tools: tools,
       toolConfig: toolConfig
     });
