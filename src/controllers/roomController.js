@@ -143,7 +143,7 @@ exports.getRoomById = async (req, res) => {
 
 
 // ============= Availability Search =============
-// GET /api/rooms/availability?check_in=YYYY-MM-DD&check_out=YYYY-MM-DD&guests=2&hotel_id=1&room_type_id=1&min_price=0&max_price=1000000&sort=price_asc|price_desc&page=1&limit=10
+// GET /api/rooms/availability?check_in=YYYY-MM-DD&check_out=YYYY-MM-DD&guests=2&hotel_id=1&room_type_id=1&min_price=0&max_price=1000000&sort=price_asc|price_desc&page=1&limit=10&num_rooms=1
 exports.searchAvailability = async (req, res) => {
   try {
     const {
@@ -156,11 +156,18 @@ exports.searchAvailability = async (req, res) => {
       max_price,
       sort = 'price_asc',
       page = 1,
-      limit
+      limit,
+      num_rooms = 1
     } = req.query;
 
     if (!check_in || !check_out) {
       return res.status(400).json({ message: 'Thiếu check_in hoặc check_out' });
+    }
+
+    // Parse num_rooms với giá trị mặc định là 1
+    const parsedNumRooms = parseInt(num_rooms) || 1;
+    if (parsedNumRooms < 1) {
+      return res.status(400).json({ message: 'Số lượng phòng phải lớn hơn 0' });
     }
 
     // Chỉ áp dụng limit và offset nếu có limit, nếu không thì trả về tất cả
@@ -419,10 +426,25 @@ exports.searchAvailability = async (req, res) => {
       };
     }).sort((a, b) => a.room_type_id - b.room_type_id);
 
+    // Lọc các loại phòng theo số lượng phòng yêu cầu (num_rooms)
+    // Chỉ giữ lại các loại phòng có số phòng trống >= num_rooms
+    const filteredSummaryByRoomType = summaryByRoomType.filter(
+      roomType => roomType.available_rooms >= parsedNumRooms
+    );
+
+    // Lọc filteredRows để chỉ giữ lại các phòng thuộc các loại phòng thỏa mãn điều kiện
+    const validRoomTypeIds = new Set(
+      filteredSummaryByRoomType.map(rt => rt.room_type_id)
+    );
+    const finalFilteredRows = filteredRows.filter(
+      room => room.room_type && validRoomTypeIds.has(room.room_type.room_type_id)
+    );
+
     return res.status(200).json({
-      total: filteredRows.length,
-      rooms: filteredRows,
-      summary_by_room_type: summaryByRoomType
+      total: finalFilteredRows.length,
+      rooms: finalFilteredRows,
+      summary_by_room_type: filteredSummaryByRoomType,
+      requested_num_rooms: parsedNumRooms
     });
   } catch (error) {
     return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
