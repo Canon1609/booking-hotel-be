@@ -426,15 +426,13 @@ exports.searchAvailability = async (req, res) => {
       };
     }).sort((a, b) => a.room_type_id - b.room_type_id);
 
-    // Lọc các loại phòng theo số lượng phòng yêu cầu (num_rooms)
-    // Chỉ giữ lại các loại phòng có số phòng trống >= num_rooms
-    const filteredSummaryByRoomType = summaryByRoomType.filter(
-      roomType => roomType.available_rooms >= parsedNumRooms
-    );
-
-    // Lọc filteredRows để chỉ giữ lại các phòng thuộc các loại phòng thỏa mãn điều kiện
+    // Lọc danh sách phòng theo số lượng phòng yêu cầu (num_rooms)
+    // Chỉ hiển thị các phòng thuộc loại phòng có số phòng trống >= num_rooms
+    // Lưu ý: Summary vẫn giữ TẤT CẢ các loại phòng (kể cả hết phòng) để người dùng biết
     const validRoomTypeIds = new Set(
-      filteredSummaryByRoomType.map(rt => rt.room_type_id)
+      summaryByRoomType
+        .filter(roomType => roomType.available_rooms >= parsedNumRooms)
+        .map(rt => rt.room_type_id)
     );
     const finalFilteredRows = filteredRows.filter(
       room => room.room_type && validRoomTypeIds.has(room.room_type.room_type_id)
@@ -443,7 +441,7 @@ exports.searchAvailability = async (req, res) => {
     return res.status(200).json({
       total: finalFilteredRows.length,
       rooms: finalFilteredRows,
-      summary_by_room_type: filteredSummaryByRoomType,
+      summary_by_room_type: summaryByRoomType, // Giữ nguyên tất cả các loại phòng trong summary
       requested_num_rooms: parsedNumRooms
     });
   } catch (error) {
