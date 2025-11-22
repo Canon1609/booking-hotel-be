@@ -353,3 +353,32 @@ async function ensureInitialAdminUser() {
 
 module.exports.ensureInitialAdminUser = ensureInitialAdminUser;
 
+// Thêm cột reply và reply_at vào bảng reviews nếu chưa có
+async function ensureReviewReplyColumns() {
+  try {
+    // Kiểm tra và thêm cột reply
+    const hasReply = await columnExists('reviews', 'reply');
+    if (!hasReply) {
+      await sequelize.query(`
+        ALTER TABLE \`reviews\` 
+        ADD COLUMN \`reply\` TEXT NULL COMMENT 'Admin reply to review'
+      `);
+      console.log('✅ Added reply column to reviews table');
+    }
+
+    // Kiểm tra và thêm cột reply_at
+    const hasReplyAt = await columnExists('reviews', 'reply_at');
+    if (!hasReplyAt) {
+      await sequelize.query(`
+        ALTER TABLE \`reviews\` 
+        ADD COLUMN \`reply_at\` DATETIME NULL COMMENT 'Time when admin replied'
+      `);
+      console.log('✅ Added reply_at column to reviews table');
+    }
+  } catch (error) {
+    console.error('Error adding reply columns to reviews table:', error);
+  }
+}
+
+module.exports.ensureReviewReplyColumns = ensureReviewReplyColumns;
+

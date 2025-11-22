@@ -1,4 +1,5 @@
 const multer = require('multer');
+const moment = require('moment-timezone');
 const { Review, Booking, User, RoomType, Room, BookingRoom } = require('../models');
 const { Op } = require('sequelize');
 const { uploadBufferToS3, generateKey, deleteFromS3, tryExtractKeyFromUrl } = require('../utils/s3.util');
@@ -105,13 +106,17 @@ exports.updateReview = async (req, res) => {
     const { id } = req.params;
     const { rating, comment } = req.body;
     const user_id = req.user.id;
+    const isAdmin = req.user.role === 'admin';
 
     // Tìm review
+    const whereClause = { review_id: id };
+    if (!isAdmin) {
+      // Nếu không phải admin, chỉ cho phép chỉnh sửa review của chính mình
+      whereClause.user_id = user_id;
+    }
+
     const review = await Review.findOne({
-      where: { 
-        review_id: id,
-        user_id 
-      }
+      where: whereClause
     });
 
     if (!review) {
@@ -181,12 +186,17 @@ exports.deleteReview = async (req, res) => {
   try {
     const { id } = req.params;
     const user_id = req.user.id;
+    const isAdmin = req.user.role === 'admin';
+
+    // Tìm review
+    const whereClause = { review_id: id };
+    if (!isAdmin) {
+      // Nếu không phải admin, chỉ cho phép xóa review của chính mình
+      whereClause.user_id = user_id;
+    }
 
     const review = await Review.findOne({
-      where: { 
-        review_id: id,
-        user_id 
-      }
+      where: whereClause
     });
 
     if (!review) {
@@ -273,6 +283,8 @@ exports.getReviewsByRoomType = async (req, res) => {
         rating: review.rating,
         comment: review.comment,
         images: review.images,
+        reply: review.reply,
+        reply_at: review.reply_at,
         created_at: review.created_at,
         updated_at: review.updated_at,
         user: {
@@ -344,6 +356,8 @@ exports.getAllReviews = async (req, res) => {
         rating: review.rating,
         comment: review.comment,
         images: review.images,
+        reply: review.reply,
+        reply_at: review.reply_at,
         created_at: review.created_at,
         updated_at: review.updated_at,
         user: {
@@ -417,6 +431,8 @@ exports.getMyReviews = async (req, res) => {
         rating: review.rating,
         comment: review.comment,
         images: review.images,
+        reply: review.reply,
+        reply_at: review.reply_at,
         created_at: review.created_at,
         updated_at: review.updated_at,
         booking: {
@@ -439,6 +455,57 @@ exports.getMyReviews = async (req, res) => {
 
   } catch (error) {
     console.error('Error getting my reviews:', error);
+    return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+  }
+};
+
+// Admin phản hồi đánh giá
+exports.replyToReview = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reply } = req.body;
+
+    if (!reply || reply.trim() === '') {
+      return res.status(400).json({ message: 'Vui lòng nhập nội dung phản hồi' });
+    }
+
+    // Tìm review
+    const review = await Review.findOne({
+      where: { review_id: id }
+    });
+
+    if (!review) {
+      return res.status(404).json({ message: 'Không tìm thấy review' });
+    }
+
+    // Cập nhật reply
+    review.reply = reply.trim();
+    review.reply_at = moment().tz('Asia/Ho_Chi_Minh').format('YYYY-MM-DD HH:mm:ss');
+    await review.save();
+
+    // Lấy thông tin đầy đủ
+    const updatedReview = await Review.findOne({
+      where: { review_id: id },
+      include: [
+        { model: User, as: 'user', attributes: ['user_id', 'full_name', 'email'] },
+        { 
+          model: Booking, 
+          as: 'booking',
+          attributes: ['booking_id', 'booking_code', 'room_type_id'],
+          include: [
+            { model: RoomType, as: 'room_type', attributes: ['room_type_name'] }
+          ]
+        }
+      ]
+    });
+
+    return res.status(200).json({
+      message: 'Phản hồi đánh giá thành công',
+      review: updatedReview
+    });
+
+  } catch (error) {
+    console.error('Error replying to review:', error);
     return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
   }
 };

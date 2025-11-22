@@ -32,6 +32,16 @@ const Review = sequelize.define('Review', {
     allowNull: false,
     references: { model: 'bookings', key: 'booking_id' }
   },
+  reply: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    comment: 'Admin reply to review'
+  },
+  reply_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+    comment: 'Time when admin replied'
+  },
   created_at: {
     type: DataTypes.DATE,
     allowNull: false,

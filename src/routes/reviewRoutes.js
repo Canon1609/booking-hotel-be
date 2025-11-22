@@ -18,7 +18,10 @@ router.get('/my-reviews', protect, reviewController.getMyReviews);
 // Cập nhật review (cần auth - chỉ user sở hữu + upload images)
 router.put('/:id', protect, reviewController.uploadImages, reviewController.updateReview);
 
-// Xóa review (cần auth - chỉ user sở hữu)
+// Xóa review (cần auth - chỉ user sở hữu hoặc admin)
 router.delete('/:id', protect, reviewController.deleteReview);
+
+// Admin phản hồi đánh giá (cần auth + admin)
+router.post('/:id/reply', protect, adminOnly, reviewController.replyToReview);
 
 module.exports = router;
