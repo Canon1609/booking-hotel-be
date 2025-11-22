@@ -47,6 +47,7 @@ async function syncDatabase() {
     const ensurePaymentDateColumn = dbUtil.ensurePaymentDateColumn;
     const ensureInitialAdminUser = dbUtil.ensureInitialAdminUser;
     const ensureChatSessionsTable = dbUtil.ensureChatSessionsTable;
+    const ensureReviewReplyColumns = dbUtil.ensureReviewReplyColumns;
     
     await sequelize.authenticate();
     console.log('Database connected');
@@ -112,6 +113,10 @@ async function syncDatabase() {
     // Chạy migration cho Reviews images
     console.log('Checking Reviews images column...');
     await ensureReviewsImages();
+    
+    // Chạy migration cho Reviews reply columns
+    console.log('Checking Reviews reply columns...');
+    await ensureReviewReplyColumns();
     
     // Chạy migration cho booking payment_status ENUM
     console.log('Checking booking payment_status ENUM...');

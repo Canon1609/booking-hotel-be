@@ -747,3 +747,295 @@ exports.exportRoomStatusReport = async (req, res) => {
   }
 };
 
+// ========== 4. BÁO CÁO THUẾ (TAX REPORTS) - EXCEL ==========
+
+// 4.1. Xuất báo cáo thuế chuẩn
+exports.exportTaxReport = async (req, res) => {
+  try {
+    const { start_date, end_date } = req.query;
+    
+    if (!start_date || !end_date) {
+      return res.status(400).json({ 
+        message: 'Vui lòng cung cấp start_date và end_date (format: YYYY-MM-DD)' 
+      });
+    }
+
+    const startDate = moment(start_date).tz('Asia/Ho_Chi_Minh').startOf('day');
+    const endDate = moment(end_date).tz('Asia/Ho_Chi_Minh').endOf('day');
+
+    // Lấy thông tin khách sạn (để lấy thông tin doanh nghiệp)
+    const hotel = await Hotel.findOne({
+      order: [['hotel_id', 'ASC']]
+    });
+
+    // Lấy tất cả booking đã thanh toán trong khoảng thời gian (không bao gồm cancelled)
+    const bookings = await Booking.findAll({
+      where: {
+        created_at: {
+          [Op.between]: [startDate.toDate(), endDate.toDate()]
+        },
+        booking_status: {
+          [Op.in]: ['confirmed', 'checked_in', 'checked_out']
+        }
+      },
+      include: [
+        { 
+          model: User, 
+          as: 'user', 
+          attributes: ['user_id', 'full_name', 'email', 'phone', 'cccd'] 
+        },
+        { model: RoomType, as: 'room_type' },
+        { 
+          model: BookingService, 
+          as: 'booking_services', 
+          include: [{ model: Service, as: 'service' }],
+          where: { status: { [Op.ne]: 'cancelled' } },
+          required: false
+        },
+        { 
+          model: Payment, 
+          as: 'payments', 
+          where: { status: 'completed' }, 
+          required: false 
+        },
+        {
+          model: BookingRoom,
+          as: 'booking_rooms',
+          include: [{ model: Room, as: 'room', attributes: ['room_num'] }]
+        }
+      ],
+      order: [['created_at', 'ASC']]
+    });
+
+    // VAT rate (10% cho dịch vụ lưu trú)
+    const VAT_RATE = 0.1;
+
+    // Tính toán chi tiết từng booking
+    const bookingDetails = [];
+    let totalRevenueBeforeVAT = 0; // Tổng doanh thu chưa VAT
+    let totalVAT = 0; // Tổng thuế VAT
+    let totalRevenueAfterVAT = 0; // Tổng doanh thu sau VAT
+    let totalRefunded = 0; // Tổng tiền đã hoàn lại
+
+    for (const booking of bookings) {
+      // Tính tổng tiền đã thanh toán và đã hoàn lại
+      let bookingPaid = 0;
+      let bookingRefunded = 0;
+      
+      if (booking.payments && booking.payments.length > 0) {
+        for (const payment of booking.payments) {
+          const amount = parseFloat(payment.amount || 0);
+          if (amount > 0) {
+            bookingPaid += amount;
+          } else if (amount < 0) {
+            bookingRefunded += Math.abs(amount);
+          }
+        }
+      }
+
+      // Tính tổng tiền dịch vụ postpaid (thanh toán tiền mặt, không có payment record)
+      let postpaidServicesAmount = 0;
+      if (booking.booking_services && booking.booking_services.length > 0) {
+        for (const bs of booking.booking_services) {
+          if (bs.status !== 'cancelled' && bs.payment_type === 'postpaid') {
+            postpaidServicesAmount += parseFloat(bs.total_price || 0);
+          }
+        }
+      }
+
+      // Tổng tiền thực tế thu được từ booking này
+      let bookingTotalPaid = bookingPaid;
+      if (bookingTotalPaid === 0) {
+        // Nếu không có payment record, tính từ booking + dịch vụ
+        const roomAmount = parseFloat(booking.total_price || 0);
+        let totalServicesAmount = 0;
+        if (booking.booking_services && booking.booking_services.length > 0) {
+          for (const bs of booking.booking_services) {
+            if (bs.status !== 'cancelled') {
+              totalServicesAmount += parseFloat(bs.total_price || 0);
+            }
+          }
+        }
+        bookingTotalPaid = roomAmount + totalServicesAmount;
+      } else {
+        // Cộng thêm dịch vụ postpaid
+        bookingTotalPaid += postpaidServicesAmount;
+      }
+
+      // Doanh thu thực tế = Tổng đã thanh toán - Tổng đã hoàn lại
+      const bookingRevenue = bookingTotalPaid - bookingRefunded;
+
+      if (bookingRevenue > 0) {
+        // Tính VAT: Doanh thu chưa VAT = Doanh thu / (1 + VAT_RATE)
+        const revenueBeforeVAT = bookingRevenue / (1 + VAT_RATE);
+        const vat = bookingRevenue - revenueBeforeVAT;
+
+        // Cộng vào tổng
+        totalRevenueBeforeVAT += revenueBeforeVAT;
+        totalVAT += vat;
+        totalRevenueAfterVAT += bookingRevenue;
+        totalRefunded += bookingRefunded;
+
+        // Lấy thông tin phòng
+        const roomNumbers = booking.booking_rooms?.map(br => br.room?.room_num).filter(Boolean).join(', ') || 'N/A';
+
+        // Lấy danh sách dịch vụ
+        const services = booking.booking_services?.map(bs => bs.service?.service_name || 'N/A').filter(Boolean).join(', ') || 'Không có';
+
+        bookingDetails.push({
+          booking_code: booking.booking_code,
+          invoice_date: moment(booking.created_at).format('DD/MM/YYYY'),
+          customer_name: booking.user?.full_name || 'N/A',
+          customer_tax_code: booking.user?.cccd || 'N/A',
+          customer_address: 'N/A', // Có thể thêm vào User model sau
+          room_type: booking.room_type?.room_type_name || 'N/A',
+          room_numbers: roomNumbers,
+          services: services,
+          revenue_before_vat: revenueBeforeVAT,
+          vat: vat,
+          revenue_after_vat: bookingRevenue,
+          payment_method: booking.booking_type === 'online' ? 'Online' : 'Tiền mặt',
+          refunded: bookingRefunded
+        });
+      }
+    }
+
+    // Tạo Excel
+    const workbook = excelService.createWorkbook();
+    const worksheet = workbook.addWorksheet('Báo cáo Thuế');
+
+    // ========== PHẦN 1: THÔNG TIN DOANH NGHIỆP ==========
+    worksheet.mergeCells('A1:F1');
+    worksheet.getCell('A1').value = 'BÁO CÁO THUẾ - BEAN HOTEL';
+    worksheet.getCell('A1').font = { bold: true, size: 16 };
+    worksheet.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' };
+
+    worksheet.mergeCells('A2:F2');
+    worksheet.getCell('A2').value = `Kỳ báo cáo: Từ ${startDate.format('DD/MM/YYYY')} đến ${endDate.format('DD/MM/YYYY')}`;
+    worksheet.getCell('A2').font = { size: 12 };
+    worksheet.getCell('A2').alignment = { horizontal: 'center' };
+
+    worksheet.addRows([
+      [],
+      ['THÔNG TIN DOANH NGHIỆP', '', '', '', '', ''],
+      ['Tên doanh nghiệp:', hotel?.name || 'BEAN HOTEL', '', '', '', ''],
+      ['Địa chỉ:', hotel?.address || 'N/A', '', '', '', ''],
+      ['Mã số thuế:', hotel?.tax_code || 'N/A', '', '', '', ''],
+      ['Điện thoại:', hotel?.phone || 'N/A', '', '', '', ''],
+      ['Email:', hotel?.email || 'N/A', '', '', '', '']
+    ]);
+
+    // ========== PHẦN 2: TỔNG HỢP ==========
+    worksheet.addRows([
+      [],
+      ['TỔNG HỢP DOANH THU', '', '', '', '', ''],
+      ['Chỉ tiêu', 'Giá trị (VNĐ)', '', '', '', ''],
+      ['1. Tổng doanh thu chưa VAT', totalRevenueBeforeVAT, '', '', '', ''],
+      ['2. Thuế VAT (10%)', totalVAT, '', '', '', ''],
+      ['3. Tổng doanh thu sau VAT', totalRevenueAfterVAT, '', '', '', ''],
+      ['4. Tổng tiền đã hoàn lại', totalRefunded, '', '', '', '']
+    ]);
+
+    // Format header row
+    const summaryHeaderRow = worksheet.getRow(11);
+    excelService.formatHeaderRow(worksheet, summaryHeaderRow);
+
+    // Format số tiền
+    for (let i = 12; i <= 15; i++) {
+      const cell = worksheet.getCell(`B${i}`);
+      excelService.formatCurrencyCell(cell);
+    }
+
+    // ========== PHẦN 3: CHI TIẾT TỪNG HÓA ĐƠN ==========
+    worksheet.addRows([
+      [],
+      ['CHI TIẾT HÓA ĐƠN', '', '', '', '', ''],
+      ['STT', 'Mã HĐ', 'Ngày HĐ', 'Khách hàng', 'Mã số thuế KH', 'Địa chỉ KH', 'Loại phòng', 'Số phòng', 'Dịch vụ', 'Doanh thu chưa VAT', 'VAT (10%)', 'Tổng tiền', 'Phương thức TT', 'Đã hoàn lại']
+    ]);
+
+    const detailHeaderRow = worksheet.getRow(18);
+    excelService.formatHeaderRow(worksheet, detailHeaderRow);
+
+    // Thêm dữ liệu chi tiết
+    let rowIndex = 19;
+    bookingDetails.forEach((detail, index) => {
+      worksheet.addRow([
+        index + 1,
+        detail.booking_code,
+        detail.invoice_date,
+        detail.customer_name,
+        detail.customer_tax_code,
+        detail.customer_address,
+        detail.room_type,
+        detail.room_numbers,
+        detail.services,
+        detail.revenue_before_vat,
+        detail.vat,
+        detail.revenue_after_vat,
+        detail.payment_method,
+        detail.refunded
+      ]);
+
+      // Format số tiền
+      excelService.formatCurrencyCell(worksheet.getCell(`J${rowIndex}`)); // Doanh thu chưa VAT
+      excelService.formatCurrencyCell(worksheet.getCell(`K${rowIndex}`)); // VAT
+      excelService.formatCurrencyCell(worksheet.getCell(`L${rowIndex}`)); // Tổng tiền
+      excelService.formatCurrencyCell(worksheet.getCell(`N${rowIndex}`)); // Đã hoàn lại
+
+      rowIndex++;
+    });
+
+    // Thêm dòng tổng cộng
+    worksheet.addRow([
+      'TỔNG CỘNG',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      totalRevenueBeforeVAT,
+      totalVAT,
+      totalRevenueAfterVAT,
+      '',
+      totalRefunded
+    ]);
+
+    const totalRow = worksheet.getRow(rowIndex);
+    totalRow.font = { bold: true };
+    excelService.formatCurrencyCell(worksheet.getCell(`J${rowIndex}`));
+    excelService.formatCurrencyCell(worksheet.getCell(`K${rowIndex}`));
+    excelService.formatCurrencyCell(worksheet.getCell(`L${rowIndex}`));
+    excelService.formatCurrencyCell(worksheet.getCell(`N${rowIndex}`));
+
+    // Set column widths
+    worksheet.getColumn('A').width = 8; // STT
+    worksheet.getColumn('B').width = 15; // Mã HĐ
+    worksheet.getColumn('C').width = 12; // Ngày HĐ
+    worksheet.getColumn('D').width = 20; // Khách hàng
+    worksheet.getColumn('E').width = 15; // Mã số thuế KH
+    worksheet.getColumn('F').width = 25; // Địa chỉ KH
+    worksheet.getColumn('G').width = 20; // Loại phòng
+    worksheet.getColumn('H').width = 15; // Số phòng
+    worksheet.getColumn('I').width = 30; // Dịch vụ
+    worksheet.getColumn('J').width = 20; // Doanh thu chưa VAT
+    worksheet.getColumn('K').width = 15; // VAT
+    worksheet.getColumn('L').width = 18; // Tổng tiền
+    worksheet.getColumn('M').width = 15; // Phương thức TT
+    worksheet.getColumn('N').width = 15; // Đã hoàn lại
+
+    // Export
+    const buffer = await workbook.xlsx.writeBuffer();
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="bao-cao-thue-${startDate.format('YYYY-MM-DD')}-${endDate.format('YYYY-MM-DD')}.xlsx"`);
+    res.send(buffer);
+
+  } catch (error) {
+    console.error('Error exporting tax report:', error);
+    return res.status(500).json({ message: 'Có lỗi xảy ra!', error: error.message });
+  }
+};
+
