@@ -33,5 +33,11 @@ router.get('/departures', protect, adminOnly, reportController.exportDepartureLi
 // GET /api/reports/room-status
 router.get('/room-status', protect, adminOnly, reportController.exportRoomStatusReport);
 
+// ========== BÁO CÁO THUẾ (TAX REPORTS) - EXCEL ==========
+
+// Xuất báo cáo thuế chuẩn
+// GET /api/reports/tax?start_date=2024-01-01&end_date=2024-01-31
+router.get('/tax', protect, adminOnly, reportController.exportTaxReport);
+
 module.exports = router;
 
