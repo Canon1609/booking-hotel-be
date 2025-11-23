@@ -879,12 +879,12 @@ exports.exportTaxReport = async (req, res) => {
         // Lấy thông tin phòng
         const roomNumbers = booking.booking_rooms?.map(br => br.room?.room_num).filter(Boolean).join(', ') || 'N/A';
 
-        // Lấy danh sách dịch vụ (chỉ lấy những dịch vụ có service_name hợp lệ)
+        // Lấy danh sách dịch vụ (chỉ lấy những dịch vụ có name hợp lệ)
         let services = 'Không có';
         if (booking.booking_services && booking.booking_services.length > 0) {
           const serviceNames = booking.booking_services
-            .filter(bs => bs.service && bs.service.service_name) // Chỉ lấy những dịch vụ có service hợp lệ
-            .map(bs => bs.service.service_name)
+            .filter(bs => bs.service && bs.service.name) // Chỉ lấy những dịch vụ có service hợp lệ
+            .map(bs => bs.service.name)
             .filter(Boolean); // Loại bỏ null/undefined/empty string
           
           if (serviceNames.length > 0) {
