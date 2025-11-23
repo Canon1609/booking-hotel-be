@@ -729,7 +729,6 @@ router.post('/chat', async (req, res) => {
     
     // Extract authentication token from Authorization header
     const authHeader = req.headers.authorization;
-    console.log('🔍 Authorization header received:', authHeader ? `${authHeader.substring(0, 20)}...` : 'NONE');
     let authToken = null;
     let isAuthenticated = false;
     let userId = null;
@@ -748,8 +747,7 @@ router.post('/chat', async (req, res) => {
         authToken = null; // Explicitly set to null if token is invalid
       }
     } else {
-      console.log('🔓 No authentication header found - FE không gửi token!');
-      console.log('🔓 Available headers:', Object.keys(req.headers).filter(h => h.toLowerCase().includes('auth')));
+      console.log('🔓 No authentication, using public tools only');
     }
 
     // Load or create chat session
@@ -826,8 +824,6 @@ router.post('/chat', async (req, res) => {
     console.log('💬 Sending message to Gemini...');
     
     // Send message to Gemini
-    // Note: If user is authenticated, the tools list includes authenticated functions
-    // and the system instruction tells Gemini to use them immediately
     const result = await chat.sendMessage(message);
     const response = await result.response;
     
@@ -978,61 +974,6 @@ router.post('/chat', async (req, res) => {
     } else {
       // Gemini responded with text directly (no function calls)
       console.log('📝 No function calls, Gemini responded with text directly');
-      
-      // Check if user is authenticated and asking about their bookings but Gemini didn't call function
-      // If so, automatically call getMyBookings
-      const lowerMessage = message.toLowerCase();
-      const isAskingAboutBookings = (lowerMessage.includes('đặt phòng') && (lowerMessage.includes('của tôi') || lowerMessage.includes('của mình') || lowerMessage.includes('lịch sử') || lowerMessage.includes('danh sách'))) ||
-                                    lowerMessage.includes('booking của tôi') || lowerMessage.includes('booking của mình');
-      
-      if (isAuthenticated && isAskingAboutBookings && geminiFunctionsUser.some(f => f.name === 'getMyBookings')) {
-        console.log('🔧 User authenticated and asking about bookings but Gemini didn\'t call function. Auto-calling getMyBookings...');
-        try {
-          const bookingResult = await executeApiTool({ 
-            name: 'getMyBookings', 
-            args: {} 
-          }, authToken);
-          
-          console.log('✅ Auto-called getMyBookings, result:', bookingResult);
-          
-          // Format the booking result
-          let bookingText = '';
-          if (bookingResult && !bookingResult.error && bookingResult.bookings && Array.isArray(bookingResult.bookings)) {
-            if (bookingResult.bookings.length === 0) {
-              bookingText = 'Anh/chị chưa có đặt phòng nào trong hệ thống ạ.';
-            } else {
-              bookingText = `Em đã tìm thấy ${bookingResult.bookings.length} đặt phòng của anh/chị:\n\n`;
-              bookingResult.bookings.forEach((booking, index) => {
-                bookingText += `${index + 1}. Mã đặt phòng: ${booking.booking_code || booking.id}\n`;
-                bookingText += `   Trạng thái: ${booking.status || 'N/A'}\n`;
-                if (booking.check_in && booking.check_out) {
-                  bookingText += `   Ngày: ${booking.check_in} đến ${booking.check_out}\n`;
-                }
-                bookingText += '\n';
-              });
-            }
-          } else if (bookingResult?.error) {
-            bookingText = `Xin lỗi, có lỗi xảy ra khi lấy danh sách đặt phòng: ${bookingResult.message || 'Không thể thực hiện yêu cầu'}`;
-          } else {
-            bookingText = 'Em đã lấy thông tin đặt phòng của anh/chị.';
-          }
-          
-          // Save chat history to DB and get session_id
-          const savedSessionId = await saveChatHistory(currentSessionId, userId, effectiveHistory, message, bookingText);
-          
-          return res.status(200).json({
-            message: 'Chat thành công',
-            statusCode: 200,
-            response: bookingText,
-            session_id: savedSessionId,
-            autoCalledFunction: 'getMyBookings'
-          });
-        } catch (error) {
-          console.error('❌ Error auto-calling getMyBookings:', error);
-          // Fall through to normal text response
-        }
-      }
-      
       let text = '';
       try {
         text = response.text();
