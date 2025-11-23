@@ -297,6 +297,21 @@ async function executeApiTool(functionCall, authToken = null) {
       
       // If this was the last attempt and error has response, format and return
       if (error.response) {
+        // Handle 401 Unauthorized specifically
+        if (error.response.status === 401) {
+          return {
+            error: true,
+            status: 401,
+            message: 'Bạn cần đăng nhập để sử dụng chức năng này. Vui lòng đăng nhập trước.',
+            requiresAuth: true,
+            data: error.response.data,
+            attempts: errors.map(e => ({
+              baseUrl: e.baseUrl,
+              status: e.error.response?.status || e.error.code || 'UNKNOWN',
+              message: e.error.response?.data?.message || e.error.message
+            }))
+          };
+        }
         return {
           error: true,
           status: error.response.status,
@@ -720,14 +735,16 @@ router.post('/chat', async (req, res) => {
     let userInfo = null;
     
     if (authHeader && authHeader.startsWith('Bearer ')) {
-      authToken = authHeader.split(' ')[1];
+      const tokenFromHeader = authHeader.split(' ')[1];
       try {
-        userInfo = verifyToken(authToken);
+        userInfo = verifyToken(tokenFromHeader);
         userId = userInfo.id || userInfo.user_id;
         isAuthenticated = true;
+        authToken = tokenFromHeader; // Only set authToken if token is valid
         console.log('🔐 User authenticated, user_id:', userId);
       } catch (tokenError) {
         console.log('⚠️ Invalid token, proceeding as guest');
+        authToken = null; // Explicitly set to null if token is invalid
       }
     } else {
       console.log('🔓 No authentication, using public tools only');
@@ -769,10 +786,24 @@ router.post('/chat', async (req, res) => {
     }
 
     // Build chat history for Gemini
-    const chatHistory = effectiveHistory.map(msg => ({
+    let chatHistory = effectiveHistory.map(msg => ({
       role: msg.role === 'user' ? 'user' : 'model',
       parts: [{ text: msg.text || msg.content }]
     }));
+
+    // If user is authenticated and history is empty, add a context message
+    // This helps Gemini know the user is authenticated and can use authenticated functions
+    if (isAuthenticated && chatHistory.length === 0) {
+      chatHistory.push({
+        role: 'user',
+        parts: [{ text: '[Tôi đã đăng nhập vào hệ thống. Bạn có thể sử dụng các function authenticated như getMyBookings để lấy thông tin đặt phòng của tôi.]' }]
+      });
+      chatHistory.push({
+        role: 'model',
+        parts: [{ text: 'Dạ em hiểu rồi ạ. Em sẽ sử dụng các function authenticated để lấy thông tin cho anh/chị.' }]
+      });
+      console.log('🔐 Added authentication context to empty history');
+    }
 
     // Get tools based on authentication status
     const tools = getToolsForUser(isAuthenticated);
@@ -825,6 +856,7 @@ router.post('/chat', async (req, res) => {
 
         try {
           // Execute API tool dynamically with auth token if available
+          console.log(`🔐 Executing function ${name} with authToken:`, authToken ? 'Present' : 'None', isAuthenticated ? '(User authenticated)' : '(Guest)');
           const functionResult = await executeApiTool({ name, args }, authToken);
           
           console.log(`✅ Function result received`);
@@ -911,8 +943,13 @@ router.post('/chat', async (req, res) => {
           }
         } else if (firstResult?.error) {
           // Handle authentication errors specifically
-          if (firstResult.requiresAuth || firstResult.message?.includes('đăng nhập')) {
-            finalText = `Để tra cứu thông tin đặt phòng, bạn cần đăng nhập trước. Sau khi đăng nhập, tôi sẽ có thể truy cập thông tin chi tiết về đặt phòng của bạn. Bạn muốn đăng nhập ngay bây giờ không?`;
+          if (firstResult.requiresAuth || firstResult.status === 401 || firstResult.message?.includes('đăng nhập') || firstResult.message?.includes('Unauthorized')) {
+            // Check if user was authenticated but token expired or invalid
+            if (isAuthenticated && firstResult.status === 401) {
+              finalText = `Token đăng nhập của bạn đã hết hạn hoặc không hợp lệ. Vui lòng đăng nhập lại để tiếp tục sử dụng dịch vụ.`;
+            } else {
+              finalText = `Để tra cứu thông tin đặt phòng, bạn cần đăng nhập trước. Sau khi đăng nhập, tôi sẽ có thể truy cập thông tin chi tiết về đặt phòng của bạn. Bạn muốn đăng nhập ngay bây giờ không?`;
+            }
           } else {
             finalText = `Xin lỗi, có lỗi xảy ra khi tìm kiếm: ${firstResult.message || 'Không thể thực hiện yêu cầu'}. Vui lòng thử lại hoặc cung cấp thêm thông tin.`;
           }
