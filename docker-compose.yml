@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   db:
     image: mysql:8.0
@@ -18,7 +16,7 @@ services:
       timeout: 5s
       retries: 10
 
-  app:
+  hotel-be:
     build: .
     container_name: hotel-be
     environment:
@@ -69,9 +67,11 @@ services:
   redis:
     image: redis:7-alpine
     container_name: hotel-redis
+    # THAY ĐỔI 1: Chỉ cho phép máy chủ (localhost) truy cập, chặn Internet
     ports:
-      - "6379:6379"
-    command: ["redis-server", "--appendonly", "yes", "--replica-read-only", "no"]
+      - "127.0.0.1:6379:6379"
+    # THAY ĐỔI 2: Đặt mật khẩu (thay 'MatKhauCucManh2025' bằng pass bạn muốn)
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "MatKhauCucManh2025"]
     volumes:
       - redis_data:/data
 
