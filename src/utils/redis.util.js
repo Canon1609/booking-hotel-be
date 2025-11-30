@@ -9,19 +9,30 @@ class RedisService {
 
   async connect() {
     try {
-      const host = process.env.REDIS_HOST || 'localhost';
+      const host = process.env.REDIS_HOST || 'hotel-redis'; // Sửa default cho chắc
       const port = process.env.REDIS_PORT || 6379;
-      const password = process.env.REDIS_PASSWORD || undefined;
+      const password = process.env.REDIS_PASSWORD;
 
-      const url = `redis://${host}:${port}`;
+      // --- SỬA ĐOẠN NÀY ---
+      // Tạo URL chuẩn: redis://:password@host:port
+      // Nếu có password thì chèn vào, không thì để trống
+      let url = `redis://${host}:${port}`;
+      if (password) {
+        url = `redis://:${password}@${host}:${port}`;
+      }
+      
       this.client = redis.createClient({
-        url,
-        password,
+        url: url,
+        // Không cần dòng password: password ở đây nữa vì đã có trong URL
         socket: {
           reconnectStrategy: (retries) => Math.min(retries * 100, 3000)
         }
       });
-      console.log(`Connecting to Redis at ${url} ...`);
+      // --------------------
+
+      // Che mật khẩu khi log ra màn hình để bảo mật
+      const logUrl = password ? `redis://:******@${host}:${port}` : url;
+      console.log(`Connecting to Redis at ${logUrl} ...`);
 
       this.client.on('error', (err) => {
         console.error('Redis Client Error:', err);
