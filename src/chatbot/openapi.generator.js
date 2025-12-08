@@ -466,4 +466,3 @@ module.exports = {
   convertToGeminiFunctions,
   PUBLIC_ROUTE_FILES
 };
-
