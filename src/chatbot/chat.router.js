@@ -3,7 +3,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const axios = require('axios');
 const moment = require('moment-timezone');
 const { HttpsProxyAgent } = require('https-proxy-agent');
-const { fetch: undiciFetch } = require('undici');
+const { fetch: undiciFetch, ProxyAgent } = require('undici');
 const { generateOpenAPISpec, convertToGeminiFunctions } = require('./openapi.generator');
 const { SERVER_URL, INTERNAL_API_URL } = require('../config/config');
 const { SYSTEM_INSTRUCTION } = require('../config/hotel.knowledge');
@@ -43,7 +43,8 @@ if (!global.fetch) {
 if (GEMINI_PROXY) {
   try {
     const proxyUrl = normalizeProxyUrl(GEMINI_PROXY);
-    const proxyAgent = new HttpsProxyAgent(proxyUrl);
+    const proxyAgent = new ProxyAgent(proxyUrl);
+    const httpsProxyAgent = new HttpsProxyAgent(proxyUrl); // fallback for any code path that still uses agent
     const baseFetch = originalFetch;
 
     global.fetch = async (url, options = {}) => {
@@ -54,7 +55,8 @@ if (GEMINI_PROXY) {
         return baseFetch(url, options);
       }
 
-      const fetchOptions = { ...options, agent: proxyAgent };
+      // undici fetch respects `dispatcher`; Node http/https may respect `agent`
+      const fetchOptions = { ...options, dispatcher: proxyAgent, agent: httpsProxyAgent };
       return baseFetch(url, fetchOptions);
     };
 
