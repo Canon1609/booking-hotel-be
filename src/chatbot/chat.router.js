@@ -1,6 +1,7 @@
 const express = require('express');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { HttpsProxyAgent } = require('https-proxy-agent');
+const { ProxyAgent, setGlobalDispatcher } = require('undici');
 const axios = require('axios');
 const moment = require('moment-timezone');
 const { generateOpenAPISpec, convertToGeminiFunctions } = require('./openapi.generator');
@@ -14,6 +15,10 @@ const router = express.Router();
 // Initialize Gemini AI
 const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.ALL_PROXY || null;
 const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : null;
+if (proxyUrl) {
+  // Force undici (used by native fetch / SDK) to respect the proxy
+  setGlobalDispatcher(new ProxyAgent(proxyUrl));
+}
 const proxiedFetch = proxyAgent
   ? (url, options = {}) => fetch(url, { ...options, agent: proxyAgent })
   : fetch;

@@ -57,9 +57,10 @@ services:
       AWS_REGION: ${AWS_REGION}
       AWS_S3_BUCKET: ${AWS_S3_BUCKET}
       # Route Gemini traffic via US proxy to satisfy location restrictions
-      HTTPS_PROXY: http://tHdcDe:YANBJf@180.149.35.85:17315
-      HTTP_PROXY: http://tHdcDe:YANBJf@180.149.35.85:17315
-      ALL_PROXY: http://tHdcDe:YANBJf@180.149.35.85:17315
+      # Set PROXY_URL in your .env to enable outbound proxy for Gemini
+      HTTPS_PROXY: ${PROXY_URL}
+      HTTP_PROXY: ${PROXY_URL}
+      ALL_PROXY: ${PROXY_URL}
       NO_PROXY: localhost,127.0.0.1,db,redis
     ports:
       - "5000:5000"
