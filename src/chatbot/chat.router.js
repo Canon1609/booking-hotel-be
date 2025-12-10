@@ -2,8 +2,6 @@ const express = require('express');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const axios = require('axios');
 const moment = require('moment-timezone');
-const { HttpsProxyAgent } = require('https-proxy-agent');
-const { fetch: undiciFetch, ProxyAgent } = require('undici');
 const { generateOpenAPISpec, convertToGeminiFunctions } = require('./openapi.generator');
 const { SERVER_URL, INTERNAL_API_URL } = require('../config/config');
 const { SYSTEM_INSTRUCTION } = require('../config/hotel.knowledge');
@@ -11,62 +9,6 @@ const { ChatSession, User } = require('../models');
 const { verifyToken } = require('../utils/jwt.util');
 
 const router = express.Router();
-
-/**
- * Gemini-only proxy setup
- * - Only routes calls to generativelanguage.googleapis.com through the proxy
- * - Leaves every other fetch untouched to avoid side effects
- */
-const GEMINI_PROXY = process.env.GEMINI_PROXY || process.env.GEMINI_HTTP_PROXY || process.env.GEMINI_PROXY_URL;
-let originalFetch = global.fetch || undiciFetch;
-
-function normalizeProxyUrl(proxyStr) {
-  if (!proxyStr) return null;
-  if (proxyStr.includes('://')) return proxyStr;
-  const parts = proxyStr.split(':');
-  if (parts.length === 4) {
-    const [host, port, user, pass] = parts;
-    return `http://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}:${port}`;
-  }
-  if (parts.length === 2) {
-    const [host, port] = parts;
-    return `http://${host}:${port}`;
-  }
-  return `http://${proxyStr}`;
-}
-
-// Ensure a global fetch exists (Node < 18)
-if (!global.fetch) {
-  global.fetch = originalFetch;
-}
-
-if (GEMINI_PROXY) {
-  try {
-    const proxyUrl = normalizeProxyUrl(GEMINI_PROXY);
-    const proxyAgent = new ProxyAgent(proxyUrl);
-    const httpsProxyAgent = new HttpsProxyAgent(proxyUrl); // fallback for any code path that still uses agent
-    const baseFetch = originalFetch;
-
-    global.fetch = async (url, options = {}) => {
-      const target = typeof url === 'string' ? url : url?.toString?.() || '';
-      const isGemini = target.includes('generativelanguage.googleapis.com');
-
-      if (!isGemini) {
-        return baseFetch(url, options);
-      }
-
-      // undici fetch respects `dispatcher`; Node http/https may respect `agent`
-      const fetchOptions = { ...options, dispatcher: proxyAgent, agent: httpsProxyAgent };
-      return baseFetch(url, fetchOptions);
-    };
-
-    console.log(`🌐 Gemini proxy enabled for generativelanguage.googleapis.com via ${proxyUrl}`);
-  } catch (error) {
-    console.error('❌ Failed to configure Gemini proxy. Continuing without proxy.', error);
-  }
-} else {
-  console.log('ℹ️ GEMINI_PROXY not set. Gemini calls will go direct.');
-}
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
